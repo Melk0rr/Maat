@@ -1,5 +1,5 @@
 $public = @( Get-ChildItem -Path "$PSScriptRoot\public\*.ps1" )
-$private = @( Get-ChildItem -Path "$PSScriptRoot\private\*.ps1" )
+$private = @( Get-ChildItem -Path "$PSScriptRoot\private\*.ps1" -Recurse )
 
 @($public + $private) | foreach-object {
   try {
