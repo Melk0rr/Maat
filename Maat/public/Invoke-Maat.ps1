@@ -23,7 +23,7 @@ function Invoke-Maat {
       ValueFromPipelineByPropertyName = $false
     )]
     [ValidateNotNullOrEmpty()]
-    [string]  $XMLConfigPath = ./src/access.conf.xml,
+    [string]  $XMLConfigPath = "$PSScriptRoot/conf/access.conf.xml",
 
     [Parameter(
       Mandatory = $false,
@@ -31,7 +31,7 @@ function Invoke-Maat {
       ValueFromPipelineByPropertyName = $false
     )]
     [ValidateNotNullOrEmpty()]
-    [switch]  $GetAccessFromConfig
+    [switch]  $GetAccessFromConfig,
 
     [Parameter(
       Mandatory = $false,
@@ -55,7 +55,7 @@ function Invoke-Maat {
       ValueFromPipelineByPropertyName = $false
     )]
     [ValidateNotNullOrEmpty()]
-    [string[]]  $Server,
+    [string[]]  $Server = $env:USERDNSDOMAIN,
 
     [Parameter(
       Mandatory = $false,
@@ -78,11 +78,11 @@ function Invoke-Maat {
       continue
     }
 
-    if (!Test-Path -Path $XMLConfig -PathType Leaf) {
+    if (!(Test-Path -Path $XMLConfigPath -PathType Leaf)) {
       throw "Maat::Invalid XML configuration path !"
     }
 
-    if (!Test-Path -Path $OutPath -PathType Container) {
+    if (!(Test-Path -Path $OutPath -PathType Container)) {
       throw "Maat::Invalid output directory !"
     }
 
@@ -94,19 +94,19 @@ function Invoke-Maat {
     $accessGroupNames = $accessConfiguration.SelectNodes("//g_name").innerText | select-object -unique
     $adGroups = Get-AccessADGroups -GroupList $accessGroupNames -ServerList $Server
 
-    $accessDir = $accessConfiguration.SelectNodes("//dir_name").innerText | select-object -unique
-
+    $accessDirs = $accessConfiguration.SelectNodes("//dir_name").innerText | select-object -unique
+    Write-Host "`nRetreiving access for $($accessDirs.count) directories..."
   }
 
   PROCESS {
-    foreach ($dir in $accessDir) {
+    foreach ($dir in $accessDirs) {
       try {
         # Retreive dir access and export it to a dedicated directory
-        $dirAccess = Get-DirAccessFromConfig $dir
-        New-Item -ItemType Directory "$OutPath\$dir"
+        $dirAccess = Get-DirAccessFromConfig ($dir.Replace("`n", ""))
+        New-Item -ItemType Directory "$OutPath\$dir" -Force
         
-        $dirAccess.dirGroups | export-csv "$OutPath\$dir\access_groups.csv" -delimiter '|'
-        $dirAccess.dirUsers | export-csv "$OutPath\$dir\access_users.csv" -delimiter '|'
+        $dirAccess.dirGroups | export-csv "$OutPath\$dir\access_groups.csv" -delimiter '|' -Force
+        $dirAccess.dirUsers | export-csv "$OutPath\$dir\access_users.csv" -delimiter '|' -Force
       }
       catch {
         Write-Error "Maat::Error while retreiving $dir access:`n$_"
@@ -115,6 +115,7 @@ function Invoke-Maat {
   }
 
   END {
-    Write-Host "Judgment has been rendered"
+    Write-Host $bannerMin -Yellow
+    Write-Host "`nJudgment has been rendered"
   }
 }
