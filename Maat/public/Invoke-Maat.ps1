@@ -31,6 +31,14 @@ function Invoke-Maat {
       ValueFromPipelineByPropertyName = $false
     )]
     [ValidateNotNullOrEmpty()]
+    [switch]  $GetAccessFromConfig
+
+    [Parameter(
+      Mandatory = $false,
+      ValueFromPipeline = $false,
+      ValueFromPipelineByPropertyName = $false
+    )]
+    [ValidateNotNullOrEmpty()]
     [switch]  $Help,
 
     [Parameter(
@@ -71,11 +79,11 @@ function Invoke-Maat {
     }
 
     if (!Test-Path -Path $XMLConfig -PathType Leaf) {
-      throw "Maat: Invalid XML configuration path !"
+      throw "Maat::Invalid XML configuration path !"
     }
 
     if (!Test-Path -Path $OutPath -PathType Container) {
-      throw "Maat: Invalid output directory !"
+      throw "Maat::Invalid output directory !"
     }
 
     Write-Host $banner -f Yellow
@@ -92,11 +100,21 @@ function Invoke-Maat {
 
   PROCESS {
     foreach ($dir in $accessDir) {
-      
+      try {
+        # Retreive dir access and export it to a dedicated directory
+        $dirAccess = Get-DirAccessFromConfig $dir
+        New-Item -ItemType Directory "$OutPath\$dir"
+        
+        $dirAccess.dirGroups | export-csv "$OutPath\$dir\access_groups.csv" -delimiter '|'
+        $dirAccess.dirUsers | export-csv "$OutPath\$dir\access_users.csv" -delimiter '|'
+      }
+      catch {
+        Write-Error "Maat::Error while retreiving $dir access:`n$_"
+      }
     }
   }
 
   END {
-    
+    Write-Host "Judgment has been rendered"
   }
 }

@@ -27,7 +27,7 @@ function Get-AccessADGroups {
         $adGroups += $adGroup
       }
       catch {
-        Write-Error "Get-AccessADGroups: error occured while retreiving $gr group from $srv`n$_"
+        Write-Error "Maat::Get-AccessADGroups::error while retreiving $gr group from $srv`n$_"
       }
     }
   }
