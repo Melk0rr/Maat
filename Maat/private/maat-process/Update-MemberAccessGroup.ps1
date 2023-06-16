@@ -23,7 +23,7 @@ function Update-MemberAccessGroup {
 
   if ($NewAccessGroup -notin $currentAccessGroups) {
     $newAccessGroupValue = "$($Member.userAccessGroup), $NewAccessGroup"
-    $Member  | add-member -MemberType NoteProperty -Name "UserAccessGroup" -Value $newAccessGroupValue -Force
+    $Member | add-member -MemberType NoteProperty -Name "UserAccessGroup" -Value $newAccessGroupValue -Force
   }
 
   return $Member

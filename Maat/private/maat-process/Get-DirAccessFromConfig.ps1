@@ -7,12 +7,14 @@ function Get-DirAccessFromConfig {
       ValueFromPipelineByPropertyName = $false
     )]
     [ValidateNotNullOrEmpty()]
-    [string]  $Dir
+    [string]  $DirName
   )
 
-  $configRelatedGroups = $accessConfiguration.SelectNodes("//group/*/dir[contains(dir_name,'$dir')]")
+  $configRelatedGroups = $accessConfiguration.SelectNodes("//group/*/dir[contains(dir_name,'$dirName')]")
   $dirRelatedMembers = @()
   $dirRelatedGroups = @()
+
+  Write-Host "$($configRelatedGroups.count) groups related to '$dirName' in config file"
 
   foreach ($configGroup in $configRelatedGroups) {
     $groupNode = $configGroup.parentNode.parentNode
@@ -20,7 +22,7 @@ function Get-DirAccessFromConfig {
 
     foreach ($adConfigGr in $adConfigGroups) {
       foreach ($relatedMember in $adConfigGr.members) {
-        $memberADObject = Get-ADUser $relatedMember -Server (Split-DN $relatedMember) -Properties Description, EmailAddress, Modified, PasswordLastSet
+        $memberADObject = Get-ADUser $relatedMember -Server (Split-DN $relatedMember).domain -Properties Description, EmailAddress, Modified, PasswordLastSet
         $formatedMember = [PSCustomObject]@{
           UserDN = $relatedMember
           UserSAN = $memberADObject.samAccountName
@@ -50,19 +52,19 @@ function Get-DirAccessFromConfig {
 
     $configGroupData = [PSCustomObject]@{
       GroupName = $groupNode.g_name
-      GroupDescription = $groupNode.description
-      GroupUserCount = $adConfigGroups.members.count
+      GroupDescription = $groupNode.description.Replace("`n", "")
+      # GroupUserCount = $adConfigGroups.members.count
       GroupPermissions = $configGroup.permissions
     }
     $dirRelatedGroups += $configGroupData
   }
 
-  Write-Host "$($dirRelatedGroups.count) groups give access to $dir:"
+  Write-Host "`n$($dirRelatedGroups.count) groups give access to $DirName :"
   foreach ($gr in $dirRelatedGroups) {
     Write-Host "$($gr.groupName): $($gr.groupPermissions)"
   }
 
-  Write-Host "$($dirRelatedMembers.count) user have access to $dir:"
+  Write-Host "`n$($dirRelatedMembers.count) user have access to $DirName :"
   foreach ($usr in $dirRelatedMembers) {
     Write-Host "$($usr.UserSAN): $($usr.userPermissions)"
   }

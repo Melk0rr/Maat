@@ -16,8 +16,10 @@ function Get-AccessADGroups {
       ValueFromPipelineByPropertyName = $false
     )]
     [ValidateNotNullOrEmpty()]
-    [string[]]  $ServerList,
+    [string[]]  $ServerList
   )
+
+  Write-Host "Retreiving $($GroupList.count) groups from $($ServerList.count) domain(s)..."
 
   $adGroups = @()
   foreach ($srv in $ServerList) {
@@ -27,10 +29,11 @@ function Get-AccessADGroups {
         $adGroups += $adGroup
       }
       catch {
-        Write-Error "Maat::Get-AccessADGroups::error while retreiving $gr group from $srv`n$_"
+        Write-Warning "Maat::Get-AccessADGroups:: $_"
       }
     }
   }
 
+  Write-Host "Found $($adGroups.count)/$($GroupList.count) groups in AD"
   return $adGroups
 }
