@@ -23,7 +23,23 @@ function Invoke-Maat {
       ValueFromPipelineByPropertyName = $false
     )]
     [ValidateNotNullOrEmpty()]
+    [string]  $XMLConfigPath = ./src/access.conf.xml,
+
+    [Parameter(
+      Mandatory = $false,
+      ValueFromPipeline = $false,
+      ValueFromPipelineByPropertyName = $false
+    )]
+    [ValidateNotNullOrEmpty()]
     [switch]  $Help,
+
+    [Parameter(
+      Mandatory = $true,
+      ValueFromPipeline = $false,
+      ValueFromPipelineByPropertyName = $false
+    )]
+    [ValidateNotNullOrEmpty()]
+    [string]  $OutPath,
 
     [Parameter(
       Mandatory = $false,
@@ -54,13 +70,21 @@ function Invoke-Maat {
       continue
     }
 
+    if (!Test-Path -Path $XMLConfig -PathType Leaf) {
+      throw "Maat: Invalid XML configuration path !"
+    }
+
+    if (!Test-Path -Path $OutPath -PathType Container) {
+      throw "Maat: Invalid output directory !"
+    }
+
     Write-Host $banner -f Yellow
     $startTime = Get-Date
 
     # Retreive List of group names from access configuration + get groups from AD
-    [xml]$accessConfiguration = Get-Content ./src/acces.conf.xml
+    [xml]$accessConfiguration = Get-Content $XMLConfigPath
     $accessGroupNames = $accessConfiguration.SelectNodes("//g_name").innerText | select-object -unique
-    $adGroup = Get-AccessADGroups -GroupList $accessGroupNames -ServerList $Server
+    $adGroups = Get-AccessADGroups -GroupList $accessGroupNames -ServerList $Server
 
     $accessDir = $accessConfiguration.SelectNodes("//dir_name").innerText | select-object -unique
 
