@@ -94,7 +94,7 @@ function Invoke-Maat {
     $accessGroupNames = $accessConfiguration.SelectNodes("//g_name").innerText | select-object -unique
     $adGroups = Get-AccessADGroups -GroupList $accessGroupNames -ServerList $Server
 
-    $accessDirs = $accessConfiguration.SelectNodes("//dir_name").innerText | select-object -unique
+    $accessDirs = Get-UniqueObject $accessConfiguration.SelectNodes("//dir") -Property "dir_name"
     Write-Host "`nRetreiving access for $($accessDirs.count) directories..."
   }
 
@@ -102,7 +102,7 @@ function Invoke-Maat {
     foreach ($dir in $accessDirs) {
       try {
         # Retreive dir access and export it to a dedicated directory
-        $dirAccess = Get-DirAccessFromConfig ($dir.Replace("`n", ""))
+        $dirAccess = Get-DirAccessFromConfig ($dir.dir_name.Replace("`n", ""))
         New-Item -ItemType Directory "$OutPath\$dir" -Force
         
         $dirAccess.dirGroups | export-csv "$OutPath\$dir\access_groups.csv" -delimiter '|' -Force
