@@ -1,3 +1,21 @@
+function Get-DirAccessFromACL {
+  [CmdletBinding()]
+  param(
+    [Parameter(
+      Mandatory = $true,
+      ValueFromPipeline = $false,
+      ValueFromPipelineByPropertyName = $false
+    )]
+    [ValidateNotNullOrEmpty()]
+    [string]  $DirName
+  )
+
+  $acl = Get-ACL
+}
+
+
+
+
 foreach ($FolderFullName in $FolderFullNames) {
   Write-Host "Processing folder [$FolderFullName]"
   $Acl = Get-Acl -Path $FolderFullName
