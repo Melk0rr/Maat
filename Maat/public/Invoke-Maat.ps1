@@ -31,7 +31,15 @@ function Invoke-Maat {
       ValueFromPipelineByPropertyName = $false
     )]
     [ValidateNotNullOrEmpty()]
-    [switch]  $GetAccessFromConfig,
+    [switch]  $ACLCheck,
+
+    [Parameter(
+      Mandatory = $false,
+      ValueFromPipeline = $false,
+      ValueFromPipelineByPropertyName = $false
+    )]
+    [ValidateNotNullOrEmpty()]
+    [switch]  $ConfigCheck,
 
     [Parameter(
       Mandatory = $false,
@@ -101,13 +109,28 @@ function Invoke-Maat {
   PROCESS {
     foreach ($dir in $accessDirs) {
       try {
-        # Retreive dir access and export it to a dedicated directory
-        $dirAccess = Get-DirAccessFromConfig ($dir.dir_name.Replace("`n", ""))
+        $dirOut = "$OutPath\directories\$dir"
         New-Item -ItemType Directory "$OutPath\$dir" -Force
-        
-        $dirAccess.dirGroups | export-csv "$OutPath\$dir\access_groups.csv" -delimiter '|' -Force
-        $dirAccess.dirUsers | export-csv "$OutPath\$dir\access_users.csv" -delimiter '|' -Force
+
+        # Retreive dir access from configuration and export it to a dedicated directory
+        if ($ConfigCheck.IsPresent) {
+          $dirAccess = Get-DirAccessFromConfig ($dir.dir_name.Replace("`n", ""))
+
+          # Export
+          $dirAccess.dirGroups | export-csv "$dirOut\config\access_groups.csv" -delimiter '|' -Force
+          $dirAccess.dirUsers | export-csv "$dirOut\config\access_users.csv" -delimiter '|' -Force
+        }
+
+        # Retreive dir access from acl and export it to a dedicated directory
+        if ($ACLCheck.IsPresent) {
+          $aclAccess = Get-DirAccessFromACL ($dir.dir_name.Replace("`n", ""))
+
+          # Export
+          $aclAccess.dirGroups | export-csv "$dirOut\acl\access_groups.csv" -delimiter '|' -Force
+          $aclAccess.dirUsers | export-csv "$dirOut\acl\access_users.csv" -delimiter '|' -Force
+        }
       }
+
       catch {
         Write-Error "Maat::Error while retreiving $dir access:`n$_"
       }
