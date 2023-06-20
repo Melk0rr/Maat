@@ -10,19 +10,38 @@ function Get-ADGroupFromACL {
     [string]  $IdentityReference
   )
 
-  # Check if IdentityReference can be found in the ad group list built from configuration
-  $adGroupCheck = $adGroups.Where({ $_.SID -eq $IdentityReference })
-  if ($adGroupCheck.count -gt 0) {
-    return $adGroupCheck[0]
+  # Define the type of identity reference : either group SID or group Name
+  $sidRegex = 'S-\d-(?:\d+-){1,14}\d+'
+  $referenceType = "Name"
+  if ($IdentityReference -match $sidRegex) {
+    $referenceType = "SID"
   }
 
-  try {
-    $aclADGroup = $Server | foreach-object {
-      Get-ADGroup -Filter { SID -eq $IdentityReference } -Server $_
-    }
-    return $aclADGroup[0]
+  # If identity reference is an SID : translate it to a group name
+  $formatedIDReference = $IdentityReference
+  if ($referenceType -eq "SID") {
+    $sid = New-Object System.Security.Principal.SecurityIdentifier($IdentityReference)
+    $formatedIDReference = $sid.Translate([System.Security.Principal.NTAccount]).Value.Split("\")[-1]
   }
-  catch {
-    Write-Warning $_
-  }   
+
+  $resACLGroup = @()
+
+  # Check if IdentityReference can be found in the ad group list built from configuration
+  $configADGroupCheck = $adGroups.Where({ $_.$referenceType -eq $formatedIDReference })
+  if ($configADGroupCheck.count -gt 0) {
+    $resACLGroup += $configADGroupCheck
+
+  } else {
+    foreach ($srv in $Server) {
+      try {
+        $idRefGr = Get-ADGroup $formatedIDReference -Server $srv -Properties Description, Members
+        $resACLGroup += $idRefGr
+      }
+      catch {
+        Write-Warning $_
+      }
+    }
+  }
+
+  return $resACLGroup
 }
