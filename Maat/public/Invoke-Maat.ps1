@@ -102,8 +102,9 @@ function Invoke-Maat {
     $accessGroupNames = $accessConfiguration.SelectNodes("//g_name").innerText | select-object -unique
     $adGroups = Get-AccessADGroups -GroupList $accessGroupNames -ServerList $Server
 
-    $dirDataList = @()
-    $accessDirs = Get-UniqueObject $accessConfiguration.SelectNodes("//dir") -Property "dir_name"
+    $dirData = @()
+    
+    $accessDirs = $accessConfiguration.SelectNodes("//dir")
     Write-Host "`nRetreiving access for $($accessDirs.count) directories..."
   }
 
@@ -111,30 +112,19 @@ function Invoke-Maat {
     foreach ($dir in $accessDirs) {
       $currentDirData = @{}
       try {
-        $dirOut = "$OutPath\directories\$dir"
-        New-Item -ItemType Directory "$OutPath\$dir" -Force
-
         # Retreive dir access from configuration and export it to a dedicated directory
         if ($ConfigCheck.IsPresent) {
-          $configAccess = Get-DirAccessFromConfig ($dir.dir_name.Replace("`n", ""))
-
-          # Export
-          $configAccess.dirGroups | export-csv "$dirOut\config\access_groups.csv" -delimiter '|' -Force
-          $configAccess.dirUsers | export-csv "$dirOut\config\access_users.csv" -delimiter '|' -Force
-
+          $configAccess = Get-ConfigDirAccess $dir
           $currentDirData.DirConfigAccess = $configAccess
         }
 
         # Retreive dir access from acl and export it to a dedicated directory
         if ($ACLCheck.IsPresent) {
-          $aclAccess = Get-DirAccessFromACL ($dir.dir_name.Replace("`n", ""))
-
-          # Export
-          $aclAccess.dirGroups | export-csv "$dirOut\acl\access_groups.csv" -delimiter '|' -Force
-          $aclAccess.dirUsers | export-csv "$dirOut\acl\access_users.csv" -delimiter '|' -Force
-
+          $aclAccess = Get-ACLDirAccess $dir
           $currentDirData.DirACLAccess = $aclAccess
         }
+
+        $dirData += $currentDirData
       }
 
       catch {
