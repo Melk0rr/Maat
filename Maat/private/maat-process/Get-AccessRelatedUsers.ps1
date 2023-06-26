@@ -27,23 +27,12 @@ function Get-AccessRelatedUsers {
       UserDN = $accessUsr
       UserSAN = $memberADObject.samAccountName
       UserName = $memberADObject.name
+      UserDomain = (Split-DN $accessUsr).Domain
       UserLastChange = $memberADObject.modified
       UserLastPwdChange = $memberADObject.passwordLastSet
       UserDescription = $memberADObject.description
       UserAccessGroup = $Group.name
       UserPermissions = $Permissions
-    }
-
-    # Check if the current member is already in the list
-    $checkDuplicate = $accessRelatedUsers.Where({ $_.UserDN -eq $formatedMember.UserName })
-    if ($checkDuplicate.count -gt 0) {
-      $duplicateIndex = $accessRelatedUsers.IndexOf($checkDuplicate[0])
-
-      # Update permissions if the current member is already in the list
-      $accessRelatedUsers[$duplicateIndex] = Update-MemberPermissions $accessRelatedUsers[$duplicateIndex] $formatedMember.UserPermissions
-
-      # Update access group if the current member is already in the list
-      $accessRelatedUsers[$duplicateIndex] = Update-MemberAccessGroup $accessRelatedUsers[$duplicateIndex] $formatedMember.UserAccessGroup
     }
 
     $accessRelatedUsers += $formatedMember
