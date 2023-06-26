@@ -10,6 +10,7 @@ function Get-DirAccessFromACL {
 		[object]  $Dir
 	)
 
+  $dirName = $dir.dir_name.Replace("`n", "")
   $dirACLRelatedMembers = @()
   $dirACLRelatedGroups = @()
 
@@ -40,13 +41,16 @@ function Get-DirAccessFromACL {
     $dirACLRelatedGroups += $aclGroupData
 	}
 
+  # Handle duplicated users : a user may be a member of multiple groups granting access to a dir
+  $dirACLRelatedMembers = Clear-AccessUserList $dirACLRelatedMembers
+
   # Access feedback
-  Write-Host "`n$($dirACLRelatedGroups.count) groups give access to $dir :"
+  Write-Host "`n$($dirACLRelatedGroups.count) groups give access to $dirName :"
   foreach ($gr in $dirACLRelatedGroups) {
     Write-Host "$($gr.groupName): $($gr.groupPermissions)"
   }
 
-  Write-Host "`n$($dirACLRelatedMembers.count) user have access to $dir :"
+  Write-Host "`n$($dirACLRelatedMembers.count) user have access to $dirName :"
   foreach ($usr in $dirACLRelatedMembers) {
     Write-Host "$($usr.UserSAN): $($usr.userPermissions)"
   }
