@@ -1,4 +1,4 @@
-function Get-DirAccessFromConfig {
+function Get-ConfigDirAccess {
   [CmdletBinding()]
   param(
     [Parameter(
@@ -11,32 +11,31 @@ function Get-DirAccessFromConfig {
   )
 
   $dirName = $dir.dir_name.Replace("`n", "")
-  $dirRelatedMembers = @()
   $dirRelatedGroups = @()
 
   # Retreive every mention of the specified directory
   $configRelatedGroups = $dir.SelectNodes("*/group")
-  Write-Host "$($configRelatedGroups.count) groups related to '$dirName' in config file"
+  Write-Host "`n$($configRelatedGroups.count) groups related to '$dirName' in config file"
 
   foreach ($configGroup in $configRelatedGroups) {
     # Get the group node related to the directory to retreive its name
     $adConfigGroups = $adGroups.Where({ $_.Name -eq $configGroup.g_name })
+    $configGroupMembers = @()
 
     foreach ($adConfigGr in $adConfigGroups) {
-      $dirRelatedMembers += Get-AccessRelatedUsers -GroupList $adConfigGr -Permissions $configGroup.g_permissions
+      $configGroupMembers += Get-AccessRelatedUsers $adConfigGr $configGroup.g_permissions
     }
 
     # Formatting informations related to the group itself
-    $configGroupData = [PSCustomObject]@{
+    $dirRelatedGroups += [PSCustomObject]@{
       GroupName = $configGroup.g_name
-      GroupUserCount = $adConfigGroups.members.count
+      GroupMembers = $configGroupMembers
       GroupPermissions = $configGroup.g_permissions
     }
-    $dirRelatedGroups += $configGroupData
   }
 
   # Handle duplicated users : a user may be a member of multiple groups granting access to a dir
-  $dirRelatedMembers = Clear-AccessUserList $dirRelatedMembers
+  $dirRelatedMembers = Clear-AccessUserList $dirRelatedGroups.GroupMembers
 
   # Access feedback
   Write-Host "`n$($dirRelatedGroups.count) groups give access to $dirName :"
@@ -49,8 +48,5 @@ function Get-DirAccessFromConfig {
     Write-Host "$($usr.UserSAN): $($usr.userPermissions)"
   }
 
-  return [PSCustomObject]@{
-    DirGroups = $dirRelatedGroups
-    DirUsers = $dirRelatedMembers
-  }
+  return $dirRelatedGroups
 }

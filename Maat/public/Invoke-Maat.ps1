@@ -110,7 +110,10 @@ function Invoke-Maat {
 
   PROCESS {
     foreach ($dir in $accessDirs) {
-      $currentDirData = @{}
+      $currentDirData = @{
+        DirName = $dir.dir_name
+        DirPath = $dir.dir_path
+      }
       try {
         # Retreive dir access from configuration and export it to a dedicated directory
         if ($ConfigCheck.IsPresent) {
@@ -128,14 +131,17 @@ function Invoke-Maat {
       }
 
       catch {
-        Write-Error "Maat::Error while retreiving $dir access:`n$_"
+        Write-Error "Maat::Error while retreiving $($dir.dir_name) access:`n$_"
       }
     }
   }
 
   END {
+    $xmlResults = Convert-DirDataToXML $dirData
+    $xmlResults.Save("$OutPath\access_results.xml")
+    
     $endTime = Get-Date
-    Write-Host $bannerMin -Yellow
+    Write-Host $bannerMin -f Yellow
     Write-Host "`nJudgment took $(Get-TimeDiff $startTime $endTime)"
   }
 }

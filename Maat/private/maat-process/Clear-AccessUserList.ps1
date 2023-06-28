@@ -1,4 +1,4 @@
-function Get-AccessRelatedUsers {
+function Clear-AccessUserList {
   [CmdletBinding()]
   param(
     [Parameter(

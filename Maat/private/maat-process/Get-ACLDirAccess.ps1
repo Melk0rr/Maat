@@ -1,4 +1,4 @@
-function Get-DirAccessFromACL {
+function Get-ACLDirAccess {
 	[CmdletBinding()]
 	param(
 		[Parameter(
@@ -11,7 +11,6 @@ function Get-DirAccessFromACL {
 	)
 
   $dirName = $dir.dir_name.Replace("`n", "")
-  $dirACLRelatedMembers = @()
   $dirACLRelatedGroups = @()
 
 	$acl = Get-ACL -Path $dir.dir_path
@@ -22,27 +21,26 @@ function Get-DirAccessFromACL {
 	foreach ($aclAccess in $otherAccess) {
     # Translate MS file system rights to simple R/RW short string
 		$accessPermissions = Format-ACLAccessRights $aclAccess.FileSystemRights
+    $accessIDRef = Convert-ACLIDRefToName $aclAccess.IdentityReference
+    $aclGroupMembers = @()
 
     # Get AD Groups based on name of the retreived group with identity reference
     # If identity reference is an sid, it is linked to only one domain. But multiple domains can be provided
     # Multiple domains may share group architecture, so a group name can be found in multiple domains
-    $adACLGroups = Get-ADGroupFromACL -IdentityReference $aclAccess.IdentityReference
+    $adACLGroups = Get-ADGroupFromACL -IdentityReference $accessIDRef
     foreach ($adACLGr in $adACLGroups) {
-      $dirACLRelatedMembers += Get-AccessRelatedUsers -GroupList $adACLGr -Permissions $accessPermissions
+      $aclGroupMembers += Get-AccessRelatedUsers $adACLGr $accessPermissions
     }
 
-    $aclGroupData = [PSCustomObject]@{
-      GroupName = $aclGroup.name
-      GroupDescription = $aclGroup.description.Replace("`n", "")
-      GroupUserCount = $adACLGroups.members.count
+    $dirACLRelatedGroups += [PSCustomObject]@{
+      GroupName = $accessIDRef
+      GroupMembers = $aclGroupMembers
       GroupPermissions = $accessPermissions
     }
-
-    $dirACLRelatedGroups += $aclGroupData
 	}
 
   # Handle duplicated users : a user may be a member of multiple groups granting access to a dir
-  $dirACLRelatedMembers = Clear-AccessUserList $dirACLRelatedMembers
+  $dirACLRelatedMembers = Clear-AccessUserList $dirACLRelatedGroups.GroupMembers
 
   # Access feedback
   Write-Host "`n$($dirACLRelatedGroups.count) groups give access to $dirName :"
@@ -55,8 +53,5 @@ function Get-DirAccessFromACL {
     Write-Host "$($usr.UserSAN): $($usr.userPermissions)"
   }
 
-  return [PSCustomObject]@{
-    DirGroups = $dirACLRelatedGroups
-    DirUsers = $dirACLRelatedMembers
-  }
+  return $dirACLRelatedGroups
 }
