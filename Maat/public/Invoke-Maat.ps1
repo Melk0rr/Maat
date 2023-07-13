@@ -63,6 +63,14 @@ function Invoke-Maat {
       ValueFromPipelineByPropertyName = $false
     )]
     [ValidateNotNullOrEmpty()]
+    [switch]  $Override,
+
+    [Parameter(
+      Mandatory = $false,
+      ValueFromPipeline = $false,
+      ValueFromPipelineByPropertyName = $false
+    )]
+    [ValidateNotNullOrEmpty()]
     [string[]]  $Server = $env:USERDNSDOMAIN,
 
     [Parameter(
@@ -95,7 +103,8 @@ function Invoke-Maat {
     }
 
     Write-Host $banner -f Yellow
-    $startTime = Get-Date
+    $startTime = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+    $day = ($startTime -split " ")[0].Replace('-', '')
 
     # Retreive List of group names from access configuration + get groups from AD
     [xml]$accessConfiguration = Get-Content $XMLConfigPath
@@ -137,8 +146,14 @@ function Invoke-Maat {
   }
 
   END {
+    # Save results in xml file
     $xmlResults = Convert-DirDataToXML $dirData
-    $xmlResults.Save("$OutPath\access_results.xml")
+
+    $resultOutPath = "$OutPath\maat_results"
+    if (!$Override.IsPresent) {
+      $resultOutPath += $day
+    }
+    $xmlResults.Save("$resultOutPath.xml")
     
     $endTime = Get-Date
     Write-Host $bannerMin -f Yellow

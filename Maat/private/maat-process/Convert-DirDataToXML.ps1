@@ -16,27 +16,30 @@ function Convert-DirDataToXML {
     )
     $groupObjectMembersXML = @()
 
-#     foreach ($grObjMember in $groupObject.GroupMembers) {
-#       $groupObjectMembersXML += @"
-#         <member>
-#           <m_distinguishedname>$($grObjMember.UserDN)</m_distinguishedname>
-#           <m_name>$($grObjMember.UserName)</m_name>
-#           <m_domain>$($grObjMember.UserDomain)</m_domain>
-#           <m_last_change>$($grObjMember.UserLastChange)</m_last_change>
-#           <m_last_pwdchange>$($grObjMember.UserLastPwdChange)</m_last_pwdchange>
-#           <m_description>$($grObjMember.UserDescription)</m_description>
-#         </member>
-# "@
-#     }
+    foreach ($grObjMember in $groupObject.GroupMembers) {
+      $memberDesc = $grObjMember.UserDescription ? ($grObjMember.UserDescription).Replace("&", "&amp;") : ""
+      $groupObjectMembersXML += @"
+
+          <member>
+            <m_distinguishedname>$($grObjMember.UserDN)</m_distinguishedname>
+            <m_name>$($grObjMember.UserName)</m_name>
+            <m_domain>$($grObjMember.UserDomain)</m_domain>
+            <m_last_change>$($grObjMember.UserLastChange)</m_last_change>
+            <m_last_pwdchange>$($grObjMember.UserLastPwdChange)</m_last_pwdchange>
+            <m_description>$memberDesc</m_description>
+          </member>
+"@
+    }
 
     return @"
-    <group>
-      <g_name>$($GroupObject.GroupName)</g_name>
-      <g_permissions>$($GroupObject.GroupPermissions)</g_permissions>
-      <g_members>
-      $groupObjectMembersXML
-      </g_members>
-    </group>
+      <group>
+        <g_name>$($GroupObject.GroupName)</g_name>
+        <g_permissions>$($GroupObject.GroupPermissions)</g_permissions>
+        <g_members>
+        $groupObjectMembersXML
+        </g_members>
+      </group>
+    
 "@
   }
 
@@ -61,7 +64,6 @@ function Convert-DirDataToXML {
     }
 
     $directoryXMLList += @"
-
   <dir>
     <dir_name>$($dirObject.DirName)</dir_name>
     <dir_path>$($dirObject.DirPath)</dir_path>
@@ -72,6 +74,7 @@ function Convert-DirDataToXML {
     $directoryXMLList
     </dir_acl_groups>
   </dir>
+
 "@
   }
 
