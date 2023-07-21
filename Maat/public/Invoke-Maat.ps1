@@ -112,6 +112,7 @@ function Invoke-Maat {
     $adGroups = Get-AccessADGroups -GroupList $accessGroupNames -ServerList $Server
 
     $dirData = @()
+    [MaatResult]$maatResFromConfig = [MaatResult]::new()
     
     $accessDirs = $accessConfiguration.SelectNodes("//dir")
     Write-Host "`nRetreiving access for $($accessDirs.count) directories..."
@@ -119,29 +120,26 @@ function Invoke-Maat {
 
   PROCESS {
     foreach ($dir in $accessDirs) {
-      $currentDirData = @{
-        DirName = $dir.dir_name
-        DirPath = $dir.dir_path
-      }
+      [MaatDirectory]$maatDir = [MaatDirectory]::new($dir, $maatResFromConfig)
+      
       try {
         # Retreive dir access from configuration and export it to a dedicated directory
         if ($ConfigCheck.IsPresent) {
-          $configAccess = Get-ConfigDirAccess $dir
-          $currentDirData.DirConfigAccess = $configAccess
+          Get-AccessFromConfig $maatDir
         }
 
         # Retreive dir access from acl and export it to a dedicated directory
-        if ($ACLCheck.IsPresent) {
-          $aclAccess = Get-ACLDirAccess $dir
-          $currentDirData.DirACLAccess = $aclAccess
-        }
-
-        $dirData += $currentDirData
+        # if ($ACLCheck.IsPresent) {
+        #   $aclAccess = Get-ACLDirAccess $dir
+        #   $currentDirData.DirACLAccess = $aclAccess
+        # }
       }
 
       catch {
         Write-Error "Maat::Error while retreiving $($dir.dir_name) access:`n$_"
       }
+
+      $maatResFromConfig.AddDir($maatDir)
     }
   }
 

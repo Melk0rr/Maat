@@ -22,6 +22,7 @@ function Convert-DirDataToXML {
 
           <member>
             <m_distinguishedname>$($grObjMember.UserDN)</m_distinguishedname>
+            <m_san>$($grObjMember.UserSAN)</m_san>
             <m_name>$($grObjMember.UserName)</m_name>
             <m_domain>$($grObjMember.UserDomain)</m_domain>
             <m_last_change>$($grObjMember.UserLastChange)</m_last_change>
