@@ -49,7 +49,6 @@ function Convert-DirDataToXML {
 
   foreach ($dirObject in $DirData) {
     $dirConfigGroupXMLList = @()
-
     if ($dirObject.DirConfigAccess) {
       foreach ($dirConfigGroupObject in $dirObject.DirConfigAccess) {
         $dirConfigGroupXMLList += Get-DirGroupXML $dirConfigGroupObject
@@ -71,7 +70,7 @@ function Convert-DirDataToXML {
     $dirConfigGroupXMLList
     </dir_access_groups>
     <dir_acl_groups>
-    $directoryXMLList
+    $dirACLGroupXMLList
     </dir_acl_groups>
   </dir>
 
