@@ -7,7 +7,7 @@ function Get-AccessRelatedUsers {
       ValueFromPipelineByPropertyName = $false
     )]
     [ValidateNotNullOrEmpty()]
-    [object]  $Group,
+    [object]  $adGroup,
 
     [Parameter(
       Mandatory = $true,
@@ -15,28 +15,24 @@ function Get-AccessRelatedUsers {
       ValueFromPipelineByPropertyName = $false
     )]
     [ValidateNotNullOrEmpty()]
-    [string]  $Permissions
+    [MaatAccessGroup]  $accessGroup
   )
 
-  $accessRelatedUsers = @()
-
-  foreach ($accessUsr in $Group.members) {
+  foreach ($accessUsr in $adGroup.members) {
     # Formatting some basic informations about the group members
     $memberADObject = Get-ADUser $accessUsr -Server (Split-DN $accessUsr).domain -Properties Description, EmailAddress, Modified, PasswordLastSet
-    $formatedMember = [PSCustomObject]@{
-      UserDN = $accessUsr
-      UserSAN = $memberADObject.samAccountName
-      UserName = $memberADObject.name
-      UserDomain = (Split-DN $accessUsr).Domain
-      UserLastChange = $memberADObject.modified
-      UserLastPwdChange = $memberADObject.passwordLastSet
-      UserDescription = $memberADObject.description
-      UserAccessGroup = $Group.name
-      UserPermissions = $Permissions
+    $memberProperties = @{
+      m_distinguishedname = $accessUsr
+      m_san               = $memberADObject.samAccountName
+      m_name              = $memberADObject.name
+      m_domain            = (Split-DN $accessUsr).Domain
+      m_last_change       = $memberADObject.modified
+      m_last_pwdchange    = $memberADObject.passwordLastSet
+      m_description       = $memberADObject.description
     }
 
-    $accessRelatedUsers += $formatedMember
+    [MaatAccessGroupMember]$newMember = $accessGroup.GetResultRef().GetUniqueAccessGroupMember($memberProperties)
+    $newMember.AddRelatedAccessGroup($accessGroup)
+    $accessGroup.AddMember($newMember)
   }
-
-  return $accessRelatedUsers
 }
