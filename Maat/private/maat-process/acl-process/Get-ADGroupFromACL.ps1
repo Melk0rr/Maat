@@ -11,11 +11,11 @@ function Get-ADGroupFromACL {
   )
 
   # Check if IdentityReference can be found in the ad group list built from configuration
-  $configADGroupCheck = $adGroups.Where({ $_.Name -eq $IdentityReference })
+  $configADGroupCheck = $adGroups.Where({ ($_.Name -eq $IdentityReference) -or ($_.SID -eq $IdentityReference) })
   if ($configADGroupCheck.count -gt 0) {
     $resACLGroup += $configADGroupCheck
-
-  } else {
+  }
+  else {
     foreach ($srv in $Server) {
       try {
         $idRefGr = Get-ADGroup $IdentityReference -Server $srv -Properties Description, Members
