@@ -15,7 +15,7 @@ function Get-AccessRelatedUsers {
       ValueFromPipelineByPropertyName = $false
     )]
     [ValidateNotNullOrEmpty()]
-    [MaatAccessGroup]  $accessGroup
+    $accessGroup
   )
 
   foreach ($accessUsr in $adGroup.members) {
@@ -31,7 +31,7 @@ function Get-AccessRelatedUsers {
       m_description       = $memberADObject.description
     }
 
-    [MaatAccessGroupMember]$newMember = $accessGroup.GetResultRef().GetUniqueAccessGroupMember($memberProperties)
+    $newMember = $accessGroup.GetResultRef().GetUniqueAccessGroupMember($memberProperties)
     $newMember.AddRelatedAccessGroup($accessGroup)
     $accessGroup.AddMember($newMember)
   }
