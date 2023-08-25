@@ -154,7 +154,7 @@ function Invoke-Maat {
     }
     
     $endTime = Get-Date
-    Write-Host $bannerMin -f Yellow
+    Write-Host `n$bannerMin -f Yellow
     Write-Host "`nJudgment took $(Get-TimeDiff $startTime $endTime)"
   }
 }

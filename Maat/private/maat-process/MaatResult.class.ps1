@@ -33,6 +33,11 @@ class MaatResult {
     return $this.uniqueAccessUsers.Where({ $_.GetDN() -eq $memberDN })[0]
   }
 
+  # Returns the list of unique directories
+  [MaatDirectory] GetAllUniqueDirectories() {
+    return $this.resDirectories
+  }
+
   # Returns the list of unique access groups
   [MaatAccessGroup[]] GetAllUniqueAccessGroups() {
     return $this.uniqueAccessGroups
@@ -98,6 +103,73 @@ class MaatResult {
     }
 
     return $uniqueMember
+  }
+
+  # Compare two MaatResult occurrences
+  [bool] CompareMaatResults([MaatResult]$resultToCompare) {
+    [MaatChange[]]$changes = @()
+    $oldDirs = $resultToCompare.GetAllUniqueDirectories()
+    $newDirs = $this.GetAllUniqueDirectories()
+
+    foreach ($dir in ($oldDirs + $newDirs)) {
+      $dirInOldRes = $oldDirs.Where({ $_.GetName() -eq $dir.GetName() })
+      $dirInNewRes = $newDirs.Where({ $_.GetName() -eq $dir.GetName() })
+      
+      if (($dirInOldRes.count -gt 0) -and ($dirInNewRes.count -gt 0)) {
+        $oldDirReport = $dirInOldRes[0].GetAccessReport()
+        $newDirReport = $dirInNewRes[0].GetAccessReport()
+
+        foreach ($accessUser in ($newDirReport + $oldDirReport)) {
+          $usrInOldRes = $oldDirReport.Where({ $_.userName -eq $accessUser.userName })
+          $usrInNewRes = $newDirReport.Where({ $_.userName -eq $accessUser.userName })
+
+          # If user is present in both res : check if it changed
+          if (($usrInOldRes.count -gt 0) -and ($usrInNewRes.count -gt 0)) {
+            $permChanged = $usrInOldRes[0].userPermissions -ne $usrInNewRes[0].userPermissions
+            $accessGroupChanged = $usrInOldRes[0].accessGroups -ne $usrInNewRes[0].accessGroups
+
+            # New MaatChange if user permissions changed
+            if ($permChanged) {
+              $permChange = [MaatChange]::new("$($accessUser.userName) permissions changed over $($dir.GetName())")
+              $permChange.SetOldValue($usrInOldRes[0].userPermissions)
+              $permChange.SetNewValue($usrInNewRes[0].userPermissions)
+              
+              $changes += $permChange
+            }
+
+            # New MaatChange if user access groups changed
+            if ($accessGroupChanged) {
+              $accessGroupChange = [MaatChange]::new("$($accessUser.userName) access groups changed over $($dir.GetName())")
+              $accessGroupChange.SetOldValue(($usrInOldRes[0].accessGroups -join ', '))
+              $accessGroupChange.SetNewValue(($usrInNewRes[0].accessGroups -join ', '))
+
+              $changes += $accessGroupChange
+            }
+          }
+          # If user is present in old res but not in the new
+          elseif (($usrInOldRes.count -gt 0)) {
+            $removedUserChange = [MaatChange]::new("$($usrInOldRes[0].userName) lost access permission over $($dir.GetName())")
+            $removedUserChange.SetOldValue($usrInOldRes[0].userPermissions)
+
+            $changes += $removedUserChange
+          }
+          # Else user is present in new res but not in the old
+          else {
+            $newUserChange = [MaatChange]::new("$($usrInNewRes[0].userName) gain access permission over $($dir.GetName())")
+            $newUserChange.SetNewValue($usrInNewRes[0].userPermissions)
+
+            $changes += $newUserChange
+          }
+        }
+      }
+      else {
+        $newDirChange = [MaatChange]::new("New directory monitored")
+        $newDirChange.SetNewValue($dir.GetName())
+        $changes += $newDirChange
+      }
+    }
+
+    return ($changes.count -eq 0)
   }
 
   [void] SaveXml([string]$path, [bool]$override = $false) {
@@ -205,13 +277,23 @@ class MaatDirectory {
   }
 
   # Method printing accesses for every related users
-  [void] GetAccessFeedback() {
-    $usersWithAccessToCurrentDir = $this.GetAccessUsers()
-    Write-Host "`n$($usersWithAccessToCurrentDir.count) user(s) have access to $($this.dirName) :"
+  [object[]] GetAccessReport() {
+    $usersReportList = @()
     
-    foreach ($usr in $usersWithAccessToCurrentDir) {
-      $usrPermissions = $usr.GetDirPermissions($this)
-      Write-Host "$($usr.GetSAN()): $usrPermissions"
+    foreach ($usr in $this.GetAccessUsers()) {
+      $usersReportList += $usr.GetSimpleReport($this)
+    }
+
+    return $usersReportList
+  }
+
+  # Give feedback on the current dir accesses
+  [void] GetAccessFeedback() {
+    $accessReport = $this.GetAccessReport()
+    Write-Host "`n$($accessReport.count) user(s) have access to $($this.dirName) :"
+
+    foreach ($usr in $accessReport) {
+      Write-Host "$($usr.userName): $($usr.userPermissions) ($($usr.accessGroups -join ', '))"
     }
   }
 
@@ -305,13 +387,13 @@ class MaatAccessGroup {
     return $this.groupMembers.Where({ $_.GetDN() -eq $memberDN })[0]
   }
 
-  [bool] HasPermissionsOnDir([string]$dirName) {
+  [bool] GivesPermissionsOnDir([string]$dirName) {
     return ($dirName -in $this.GetDirNames())
   }
 
   # Adds a directory to the list of related dir the group gives access on
   [void] AddRelatedDirectory([MaatDirectory]$newRelatedDir) {
-    if ($this.HasPermissionsOnDir($newRelatedDir.GetName())) {
+    if ($this.GivesPermissionsOnDir($newRelatedDir.GetName())) {
       Write-Host "$($newRelatedDir.GetName()) is already related to $($this.groupName)"
       return
     }
@@ -322,7 +404,7 @@ class MaatAccessGroup {
   # Method to add a group member
   [void] AddMember([MaatAccessGroupMember]$newMember) {
     if ($newMember.GetDN() -in $this.GetMembersDN()) {
-      Write-Host "Member $newMember is already a member of $($this.groupName)"
+      Write-Host "Member $($newMember.GetSAN()) is already a member of $($this.groupName)"
       return
     }
 
@@ -408,31 +490,49 @@ class MaatAccessGroupMember {
     return $this.memberAccessGroups.Where({ $dir.GetName() -in $_.GetDirNames() })[0]
   }
 
-  # Method to retreive user permissions over a specific directory
-  [string] GetDirPermissions([MaatDirectory]$dir) {
-    [MaatAccessGroup[]]$groupsRelatedToDir = $this.GetMemberGroupsRelatedToDir($dir)
-    
-    $permissions = $null
-    if ($groupsRelatedToDir.count -gt 0) {
-      $permissions = "R"
-      foreach ($gr in $groupsRelatedToDir) {
-        if ($permissions -ne $gr.GetPermissions()) {
-          $permissions = ($gr.GetPermissions() -eq "RW") ? $gr.GetPermissions() : $permissions
-        }
+  # Method to retreive user access groups with given perms over the given dir
+  [object] GetDirAccessGroupsByPerm([MaatDirectory]$dir) {
+    $res = @{
+      R  = @()
+      RW = @()
+    }
+
+    foreach ($gr in $this.GetMemberGroupsRelatedToDir($dir)) {
+      if ($gr.GetPermissions() -eq "RW") {
+        $res.RW += $gr
+      }
+      else {
+        $res.R += $gr
       }
     }
 
-    return $permissions
+    return $res
+  }
+
+  # Method to retreive user permissions over a specific directory
+  [string] GetDirPermissions([MaatDirectory]$dir) {
+    $userDirAccessGroupsByPerm = $this.GetDirAccessGroupsByPerm($dir)
+    return ($userDirAccessGroupsByPerm.RW.count -gt 0) ? "RW" : "R"
   }
 
   # Adds a group to the list of groups the current user is a member of
   [void] AddRelatedAccessGroup([MaatAccessGroup]$newAccessGroup) {
-    if ($newAccessGroup.GetName() -in $this.GetGroupNames()) {
-      Write-Host "$($this.memberSAN) is already a member of $($newAccessGroup.GetName())"
-      return
+    if ($newAccessGroup.GetName() -notin $this.GetGroupNames()) {
+      $this.memberAccessGroups += $newAccessGroup
     }
+  }
 
-    $this.memberAccessGroups += $newAccessGroup
+  # Method to return a short report on the current user accesses on a given dir
+  [object] GetSimpleReport([MaatDirectory]$dir) {
+    $usrAccessOverDirByPermissions = $this.GetDirAccessGroupsByPerm($dir)
+    $usrPermissions = $this.GetDirPermissions($dir)
+    $usrAccessHighestGroups = $usrAccessOverDirByPermissions[$usrPermissions] | foreach-object { $_.GetName() }
+
+    return @{
+      userName        = $this.GetSAN()
+      userPermissions = $usrPermissions
+      accessGroups    = $usrAccessHighestGroups
+    }
   }
 
   # Method to convert current instance into xml string
@@ -449,5 +549,64 @@ class MaatAccessGroupMember {
           <m_description>$memberDesc</m_description>
         </member>
 "@
+  }
+}
+
+class MaatChange {
+  [string]$changeDescription
+  [type]$oldValue
+  [type]$newValue
+
+  #Constructors
+  MaatChange([string]$description) {
+    $this.changeDescription = $description
+  }
+
+  MaatChange([string]$description, $oldValue, $newValue) {
+    $this.changeDescription = $description
+    $this.oldValue = $oldValue
+    $this.newValue = $newValue
+  }
+
+  # Getter method to return change description
+  [string] GetDescription() {
+    return $this.changeDescription
+  }
+
+  # Getter method to return change previous value
+  [type] GetOldValue() {
+    return $this.oldValue
+  }
+
+  # Getter method to return change previous value
+  [type] GetNewValue() {
+    return $this.newValue
+  }
+
+  # Setter method to set old value
+  [void] SetOldValue($value) {
+    $this.oldValue = $value
+  }
+
+  # Setter method to set new value
+  [void] SetNewValue($value) {
+    $this.newValue = $value
+  }
+
+  # Converts current change to a string
+  [string] ToString() {
+    $resString = "$($this.changeDescription)"
+
+    if ($this.oldValue -and $this.newValue) {
+      $resString = "* $resString : $($this.oldValue) => $($this.newValue) *"
+    }
+    elseif ($this.oldValue) {
+      $resString = "- $resString : $($this.oldValue) -"
+    }
+    else {
+      $resString = "+ $resString : $($this.newValue) +"
+    }
+    
+    return $resString
   }
 }

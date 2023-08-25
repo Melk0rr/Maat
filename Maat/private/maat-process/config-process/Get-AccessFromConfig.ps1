@@ -27,8 +27,6 @@ function Get-AccessFromConfig {
     }
   }
 
-  Write-Host "Coucou"
-
   # Access feedback
   $dir.GetAccessFeedback()
 }
