@@ -23,9 +23,9 @@ function Get-AccessFromACL {
     $accessPermissions = Format-ACLAccessRights $aclAccess.FileSystemRights
     $adACLGroups = Get-ADGroupFromACL -IdentityReference $aclAccess.IdentityReference
 
-    # Create access group instance + bind it to the directory 
-    $maatAccessGroup = $dir.GetResultRef().GetUniqueAccessGroupByName($adACLGroups[0].Name, $accessPermissions)
-    $maatAccessGroup.AddRelatedDirectory($dir)
+    # Create access group instance + bind it to the directory
+    [MaatAccess]$maatAccessToDir = [MaatAccess]::new($dir, $accessPermissions)
+    $maatAccessGroup = $dir.GetResultRef().GetUniqueAccessGroup($adACLGroups[0].Name, $maatAccessToDir)
     $dir.AddACLGroup($maatAccessGroup)
 
     # Get AD Groups based on name of the retreived group with identity reference

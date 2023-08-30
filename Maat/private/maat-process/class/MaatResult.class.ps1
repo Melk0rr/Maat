@@ -73,30 +73,16 @@ class MaatResult {
   }
 
   # Unique access group factory
-  [MaatAccessGroup] GetUniqueAccessGroupByXml([System.Xml.XmlElement]$groupXmlContent) {
-    $uniqueAccessGroup = $null
-    $searchUniqueAccessGroup = $this.GetAccessGroupByName($groupXmlContent.g_name)
-
-    if (!$searchUniqueAccessGroup) {
-      $uniqueAccessGroup = [MaatAccessGroup]::new($groupXmlContent, $this)
-      $this.uniqueAccessGroups += $uniqueAccessGroup
-    }
-    else {
-      $uniqueAccessGroup = $searchUniqueAccessGroup[0]
-    }
-
-    return $uniqueAccessGroup
-  }
-
-  [MaatAccessGroup] GetUniqueAccessGroupByName([string]$groupName, [string]$groupPermissions) {
+  [MaatAccessGroup] GetUniqueAccessGroup([string]$groupName, [MaatAccess]$access) {
     $uniqueAccessGroup = $null
     $searchUniqueAccessGroup = $this.GetAccessGroupByName($groupName)
 
     if (!$searchUniqueAccessGroup) {
-      $uniqueAccessGroup = [MaatAccessGroup]::new($groupName, $groupPermissions, $this)
+      $uniqueAccessGroup = [MaatAccessGroup]::new($groupName, $access)
       $this.uniqueAccessGroups += $uniqueAccessGroup
     }
     else {
+      $searchUniqueAccessGroup[0].AddAccess($access)
       $uniqueAccessGroup = $searchUniqueAccessGroup[0]
     }
 
@@ -174,8 +160,12 @@ class MaatDirectory {
     $this.resultRef = $result
 
     foreach ($accessGroupXml in $dirXmlContent.SelectNodes("*/group")) {
-      [MaatAccessGroup]$uniqueRelatedAccessGroup = $this.resultRef.GetUniqueAccessGroupByXml($accessGroupXml)
-      $uniqueRelatedAccessGroup.AddRelatedDirectory($this)
+      [MaatAccess]$accessToCurrentDir = [MaatAccess]::new($this, $accessGroupXml.g_permissions)
+      [MaatAccessGroup]$uniqueRelatedAccessGroup = $this.resultRef.GetUniqueAccessGroup($accessGroupXml.g_name, $accessToCurrentDir)
+
+      if ($accessGroupXml.SelectNodes("*/member").count -gt 0) {
+        $uniqueRelatedAccessGroup.PopulateMembers($accessGroupXml)
+      }
       
       $groupNames = $this.dirAccessGroups | foreach-object { $_.GetName() }
       if ($uniqueRelatedAccessGroup.GetName() -notin $groupNames) {
@@ -249,31 +239,24 @@ class MaatDirectory {
     $this.dirACLGroups += $newAccessGroup
   }
 
-  # Method printing accesses for every related users
-  [object[]] GetAccessReport() {
-    $usersReportList = @()
-    
-    foreach ($usr in $this.GetAccessUsers()) {
-      $usersReportList += $usr.GetSimpleReport($this)
-    }
-
-    return $usersReportList
-  }
-
   # Give feedback on the current dir accesses
   [void] GetAccessFeedback() {
-    $accessReport = $this.GetAccessReport()
-    Write-Host "`n$($accessReport.count) user(s) have access to $($this.dirName) :"
+    $accessUsers = $this.GetAccessUsers()
+    Write-Host "`n$($accessUsers.count) user(s) have access to $($this.dirName) :"
 
-    foreach ($usr in $accessReport) {
-      Write-Host "$($usr.userName): $($usr.userPermissions) ($($usr.accessGroups -join ', '))"
+    foreach ($usr in $accessUsers) {
+      $usrAccessOverDirByPermissions = $usr.GetDirAccessGroupsByPerm($this)
+      $usrPermissions = $usr.GetDirPermissions($this)
+      $usrAccessHighestGroups = $usrAccessOverDirByPermissions[$usrPermissions] | foreach-object { $_.GetName() }
+
+      Write-Host "$($usr.GetSAN()): $usrPermissions ($($usrAccessHighestGroups -join ', '))"
     }
   }
 
   # Method to convert current instance into xml string
   [string] ToXml() {
     $dirAccessGroupsXml = foreach ($accessGroup in $this.dirAccessGroups) {
-      $accessGroup.ToXml()
+      $accessGroup.ToXml($this)
     }
 
     return @"
@@ -293,7 +276,49 @@ class MaatDirectory {
 # MaatAccess class : access over a directory with R or RW permissions
 ##############################################################################
 class MaatAccess {
-  
+  [MaatDirectory] $targetDirectory
+  [string]$permissions
+
+  # Constructors
+  MaatAccess([MaatDirectory]$dir, [string]$perm) {
+    if ($perm -notin "R", "RW") {
+      throw "MaatAccess::Invalid permissions provided: $perm"
+    }
+    
+    $this.targetDirectory = $dir
+    $this.permissions = $perm
+  }
+
+  # Getter method to return targeted directory
+  [MaatDirectory] GetDirectory() {
+    return $this.targetDirectory
+  }
+
+  # Getter method to return permissions associated with directory
+  [string] GetPermissions() {
+    return $this.permissions
+  }
+
+  [void] SetPermissions([string] $perm) {
+    if ($perm -in "R", "RW") {
+      $this.permissions = $perm
+    }
+  }
+
+  # Method to update access permissions if the provided permissions are highest
+  [bool] UpdatePermissions([string]$perm) {
+    $permChanged = $false
+    if (($this.permissions -ne "RW") -and ($perm -eq "RW")) {
+      $permChanged = $true
+      $this.permissions = $perm
+    }
+
+    return $permChanged
+  }
+
+  [string] ToString() {
+    return "$($this.targetDirectory.GetName()): $($this.permissions)"
+  }
 }
 
 
@@ -302,32 +327,14 @@ class MaatAccess {
 ##############################################################################
 class MaatAccessGroup {
   [string]$groupName
-  [string]$groupPermissions = ""
-  [MaatDirectory[]]$groupDirectories = @()
+  [MaatAccess[]]$accesses = @()
   [MaatAccessGroupMember[]]$groupMembers = @()
   [MaatResult]$resultRef
 
   # Constructors
-  MaatAccessGroup([System.Xml.XmlElement]$groupXmlContent, [MaatResult]$result) {
-    $this.groupName = $groupXmlContent.g_name
-    $this.groupPermissions = $groupXmlContent.g_permissions
-    $this.resultRef = $result
-
-    foreach ($accessGroupMemberXml in $groupXmlContent.SelectNodes("*/member")) {
-      $uniqueRelatedMember = $this.resultRef.GetUniqueAccessGroupMember($accessGroupMemberXml)
-      $uniqueRelatedMember.AddRelatedAccessGroup($this)
-
-      $membersDN = $this.groupMembers | foreach-object { $_.GetDN() }
-      if (!($uniqueRelatedMember.GetDN() -in $membersDN)) {
-        $this.groupMembers += $uniqueRelatedMember
-      }
-    }
-  }
-
-  MaatAccessGroup([string]$name, [string]$permissions, [MaatResult]$result) {
+  MaatAccessGroup([string]$name, [MaatAccess]$access) {
     $this.groupName = $name
-    $this.groupPermissions = $permissions
-    $this.resultRef = $result
+    $this.accesses += $access
   }
 
   # Getter method to return access group name
@@ -335,19 +342,24 @@ class MaatAccessGroup {
     return $this.groupName
   }
 
-  # Getter method to return access group permissions
-  [string] GetPermissions() {
-    return $this.groupPermissions
+  # Getter method to return accesses
+  [MaatAccess[]] GetAccesses() {
+    return $this.accesses
+  }
+
+  # Getter method to return members
+  [MaatAccessGroupMember[]] GetMembers() {
+    return $this.groupMembers
   }
 
   # Get the list of directories that the current group gives access on
   [MaatDirectory[]] GetDirectoryList() {
-    return $this.groupDirectories
+    return $this.accesses | foreach-object { $_.GetDirectory() }
   }
 
   # Get the current MaatResult
   [MaatResult] GetResultRef() {
-    return $this.resultRef
+    return $this.accesses[0].GetDirectory().GetResultRef()
   }
 
   [string[]] GetMembersDN() {
@@ -356,7 +368,7 @@ class MaatAccessGroup {
 
   # Return the names of related directories
   [string[]] GetDirNames() {
-    return $this.groupDirectories | foreach-object { $_.GetName() }
+    return $this.GetDirectoryList() | foreach-object { $_.GetName() }
   }
 
   # Method to retreive a member based on a given SAN
@@ -369,18 +381,50 @@ class MaatAccessGroup {
     return $this.groupMembers.Where({ $_.GetDN() -eq $memberDN })[0]
   }
 
-  [bool] GivesPermissionsOnDir([string]$dirName) {
-    return ($dirName -in $this.GetDirNames())
+  # Method to check if the current group gives access over a dir
+  [bool] GivesPermissionsOnDir([MaatDirectory]$dir) {
+    return ($dir.GetName() -in $this.GetDirNames())
+  }
+
+  # Method to return Accesses over given dir
+  [MaatAccess] GetDirAccess([MaatDirectory]$dir) {
+    return $this.accesses.Where({ $_.GetDirectory().GetName() -eq $dir.GetName() })[0]
+  }
+
+  # Method to change access permissions over a dir
+  [void] ChangeDirAccess([MaatDirectory]$dir, [string]$perm) {
+    $this.GetDirAccess($dir).SetPermissions($perm)
   }
 
   # Adds a directory to the list of related dir the group gives access on
-  [void] AddRelatedDirectory([MaatDirectory]$newRelatedDir) {
-    if ($this.GivesPermissionsOnDir($newRelatedDir.GetName())) {
-      Write-Host "$($newRelatedDir.GetName()) is already related to $($this.groupName)"
+  [void] AddAccess([MaatAccess]$access, [bool]$update = $true) {
+    $accessCheck = $this.GetDirAccess($access.GetDirectory())
+    if ($accessCheck) {
+      Write-Host "MaatAccessGroup::$($this.groupName) already has access to $($access.GetDirectory().GetName()): $($accessCheck.GetPermissions())"
+      if ($update) {
+        $accessUpdated = $accessCheck.UpdatePermissions($access.GetPermissions())
+        if ($accessUpdated) {
+          Write-Host "MaatAccessGroup::Access updated with new permissions: $($access.GetPermissions())"
+        }
+      }
+
       return
     }
 
-    $this.groupDirectories += $newRelatedDir
+    $this.accesses += $access
+  }
+
+  # Method to create MaatAccessGroupMember intances based from xml content
+  [void] PopulateMembers([System.Xml.XmlElement]$xmlContent) {
+    foreach ($accessGroupMemberXml in $xmlContent.SelectNodes("*/member")) {
+      $uniqueRelatedMember = $this.GetResultRef().GetUniqueAccessGroupMember($accessGroupMemberXml)
+      $uniqueRelatedMember.AddRelatedAccessGroup($this)
+
+      $membersDN = $this.groupMembers | foreach-object { $_.GetDN() }
+      if (!($uniqueRelatedMember.GetDN() -in $membersDN)) {
+        $this.groupMembers += $uniqueRelatedMember
+      }
+    }
   }
 
   # Method to add a group member
@@ -394,7 +438,7 @@ class MaatAccessGroup {
   }
 
   # Method to convert current instance into xml string
-  [string] ToXml() {
+  [string] ToXml([MaatDirectory]$dir) {
     $groupMemberXml = foreach ($member in $this.groupMembers) {
       $member.ToXml()
     }
@@ -402,7 +446,7 @@ class MaatAccessGroup {
     return @"
       <group>
         <g_name>$($this.groupName)</g_name>
-        <g_permissions>$($this.groupPermissions)</g_permissions>
+        <g_permissions>$($this.GetDirAccess($dir).GetPermissions())</g_permissions>
         <g_members>
         $groupMemberXml
         </g_members>
@@ -470,7 +514,7 @@ class MaatAccessGroupMember {
 
   # Get a list of group the current user is a member of and related to the given directory
   [MaatAccessGroup] GetMemberGroupsRelatedToDir([MaatDirectory]$dir) {
-    return $this.memberAccessGroups.Where({ $dir.GetName() -in $_.GetDirNames() })[0]
+    return $this.memberAccessGroups.Where({ $_.GivesPermissionsOnDir($dir) })[0]
   }
 
   # Method to retreive user access groups with given perms over the given dir
@@ -481,7 +525,7 @@ class MaatAccessGroupMember {
     }
 
     foreach ($gr in $this.GetMemberGroupsRelatedToDir($dir)) {
-      if ($gr.GetPermissions() -eq "RW") {
+      if ($gr.GetDirAccess($dir).GetPermissions() -eq "RW") {
         $res.RW += $gr
       }
       else {
@@ -502,19 +546,6 @@ class MaatAccessGroupMember {
   [void] AddRelatedAccessGroup([MaatAccessGroup]$newAccessGroup) {
     if ($newAccessGroup.GetName() -notin $this.GetGroupNames()) {
       $this.memberAccessGroups += $newAccessGroup
-    }
-  }
-
-  # Method to return a short report on the current user accesses on a given dir
-  [object] GetSimpleReport([MaatDirectory]$dir) {
-    $usrAccessOverDirByPermissions = $this.GetDirAccessGroupsByPerm($dir)
-    $usrPermissions = $this.GetDirPermissions($dir)
-    $usrAccessHighestGroups = $usrAccessOverDirByPermissions[$usrPermissions] | foreach-object { $_.GetName() }
-
-    return @{
-      userName        = $this.GetSAN()
-      userPermissions = $usrPermissions
-      accessGroups    = $usrAccessHighestGroups
     }
   }
 
