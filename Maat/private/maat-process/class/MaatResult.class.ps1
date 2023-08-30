@@ -1,21 +1,35 @@
-####################################################
-# Class describing Maat result
+##############################################################################
+# MaatResult class : analyse accesses given to users over directories
+##############################################################################
 class MaatResult {
   [string]$resTitle = ""
+  [string]$resDate
   [MaatDirectory[]]$resDirectories = @()
   [MaatAccessGroup[]]$uniqueAccessGroups = @()
   [MaatAccessGroupMember[]]$uniqueAccessUsers = @()
-  [string]$resDate = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
 
   # Constructors
   MaatResult([string]$title) {
     $this.resTitle = $title
+    $this.resDate = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
   }
 
   MaatResult([xml]$xmlContent) {
+    $this.resTitle = $xmlContent.SelectSingleNode("/maat_result/title").InnerText
+    $this.resDate = $xmlContent.SelectSingleNode("/maat_result/date").InnerText
     foreach ($xmlDir in $xmlContent.SelectNodes("//dir")) {
       $this.resDirectories += [MaatDirectory]::new($xmlDir, $this)
     }
+  }
+
+  # Getter method to return res title
+  [string] GetTitle() {
+    return $this.resTitle
+  }
+
+  # Getter method to return result date
+  [string] GetDate() {
+    return $this.resDate
   }
 
   # Search a MaatDirectory by name
@@ -105,71 +119,10 @@ class MaatResult {
     return $uniqueMember
   }
 
-  # Compare two MaatResult occurrences
-  [bool] CompareMaatResults([MaatResult]$resultToCompare) {
-    [MaatChange[]]$changes = @()
-    $oldDirs = $resultToCompare.GetAllUniqueDirectories()
-    $newDirs = $this.GetAllUniqueDirectories()
-
-    foreach ($dir in ($oldDirs + $newDirs)) {
-      $dirInOldRes = $oldDirs.Where({ $_.GetName() -eq $dir.GetName() })
-      $dirInNewRes = $newDirs.Where({ $_.GetName() -eq $dir.GetName() })
-      
-      if (($dirInOldRes.count -gt 0) -and ($dirInNewRes.count -gt 0)) {
-        $oldDirReport = $dirInOldRes[0].GetAccessReport()
-        $newDirReport = $dirInNewRes[0].GetAccessReport()
-
-        foreach ($accessUser in ($newDirReport + $oldDirReport)) {
-          $usrInOldRes = $oldDirReport.Where({ $_.userName -eq $accessUser.userName })
-          $usrInNewRes = $newDirReport.Where({ $_.userName -eq $accessUser.userName })
-
-          # If user is present in both res : check if it changed
-          if (($usrInOldRes.count -gt 0) -and ($usrInNewRes.count -gt 0)) {
-            $permChanged = $usrInOldRes[0].userPermissions -ne $usrInNewRes[0].userPermissions
-            $accessGroupChanged = $usrInOldRes[0].accessGroups -ne $usrInNewRes[0].accessGroups
-
-            # New MaatChange if user permissions changed
-            if ($permChanged) {
-              $permChange = [MaatChange]::new("$($accessUser.userName) permissions changed over $($dir.GetName())")
-              $permChange.SetOldValue($usrInOldRes[0].userPermissions)
-              $permChange.SetNewValue($usrInNewRes[0].userPermissions)
-              
-              $changes += $permChange
-            }
-
-            # New MaatChange if user access groups changed
-            if ($accessGroupChanged) {
-              $accessGroupChange = [MaatChange]::new("$($accessUser.userName) access groups changed over $($dir.GetName())")
-              $accessGroupChange.SetOldValue(($usrInOldRes[0].accessGroups -join ', '))
-              $accessGroupChange.SetNewValue(($usrInNewRes[0].accessGroups -join ', '))
-
-              $changes += $accessGroupChange
-            }
-          }
-          # If user is present in old res but not in the new
-          elseif (($usrInOldRes.count -gt 0)) {
-            $removedUserChange = [MaatChange]::new("$($usrInOldRes[0].userName) lost access permission over $($dir.GetName())")
-            $removedUserChange.SetOldValue($usrInOldRes[0].userPermissions)
-
-            $changes += $removedUserChange
-          }
-          # Else user is present in new res but not in the old
-          else {
-            $newUserChange = [MaatChange]::new("$($usrInNewRes[0].userName) gain access permission over $($dir.GetName())")
-            $newUserChange.SetNewValue($usrInNewRes[0].userPermissions)
-
-            $changes += $newUserChange
-          }
-        }
-      }
-      else {
-        $newDirChange = [MaatChange]::new("New directory monitored")
-        $newDirChange.SetNewValue($dir.GetName())
-        $changes += $newDirChange
-      }
-    }
-
-    return ($changes.count -eq 0)
+  # Method to return a string describing current instance
+  [string] ToString([bool]$short = $true) {
+    $resString = "$($this.GetTitle())($($this.GetDate()))"
+    return $resString
   }
 
   [void] SaveXml([string]$path, [bool]$override = $false) {
@@ -204,12 +157,14 @@ class MaatResult {
   }
 }
 
-####################################################
-# Class describing directory behavior
+##############################################################################
+# MaatDirectory class : directories accessed by users through groups
+##############################################################################
 class MaatDirectory {
   [string]$dirName
   [string]$dirPath
   [MaatAccessGroup[]]$dirAccessGroups = @()
+  [MaatAccessGroup[]]$dirACLGroups = @()
   [MaatResult]$resultRef
 
   # Constructors
@@ -252,8 +207,16 @@ class MaatDirectory {
     return $this.dirAccessGroups | foreach-object { $_.GetName() }
   }
 
+  [string[]] GetACLGroupNames() {
+    return $this.dirACLGroups | foreach-object { $_.GetName() }
+  }
+
   [bool] IsAccessedByGroup([string]$groupName) {
     return ($groupName -in $this.GetAccessGroupNames())
+  }
+
+  [bool] IsAccessedByGroupViaACL([string]$groupName) {
+    return ($groupName -in $this.GetACLGroupNames())
   }
 
   # Get the list of users whom have access to the current directory
@@ -274,6 +237,16 @@ class MaatDirectory {
     }
 
     $this.dirAccessGroups += $newAccessGroup
+  }
+
+  # Method to add an access group to ACL list
+  [void] AddACLGroup([MaatAccessGroup]$newAccessGroup) {
+    if ($this.IsAccessedByGroupViaACL($newAccessGroup.GetName())) {
+      Write-Host "Access group $($newAccessGroup.GetName()) is already in $($this.dirName) ACL list"
+      return
+    }
+
+    $this.dirACLGroups += $newAccessGroup
   }
 
   # Method printing accesses for every related users
@@ -316,8 +289,17 @@ class MaatDirectory {
   }
 }
 
-####################################################
-# Class describing access group behavior
+##############################################################################
+# MaatAccess class : access over a directory with R or RW permissions
+##############################################################################
+class MaatAccess {
+  
+}
+
+
+##############################################################################
+# MaatAccessGroup class : groups giving access to users over a directory
+##############################################################################
 class MaatAccessGroup {
   [string]$groupName
   [string]$groupPermissions = ""
@@ -430,8 +412,9 @@ class MaatAccessGroup {
 
 }
 
-####################################################
-# Class describing access group member behavior
+##############################################################################
+# MaatAccessGroupMember class : users accessing directories via groups
+##############################################################################
 class MaatAccessGroupMember {
   [string]$memberDN
   [string]$memberSAN
@@ -552,18 +535,24 @@ class MaatAccessGroupMember {
   }
 }
 
+##############################################################################
+# MaatChange class : Describes a change in MaatResults
+##############################################################################
 class MaatChange {
   [string]$changeDescription
+  [string]$type
   [type]$oldValue
   [type]$newValue
 
   #Constructors
-  MaatChange([string]$description) {
+  MaatChange([string]$description, [string]$type) {
     $this.changeDescription = $description
+    $this.type = $type
   }
 
-  MaatChange([string]$description, $oldValue, $newValue) {
+  MaatChange([string]$description, [string]$type, $oldValue, $newValue) {
     $this.changeDescription = $description
+    $this.type = $type
     $this.oldValue = $oldValue
     $this.newValue = $newValue
   }
@@ -571,6 +560,11 @@ class MaatChange {
   # Getter method to return change description
   [string] GetDescription() {
     return $this.changeDescription
+  }
+
+  # Getter method to return the change type
+  [string] GetType() {
+    return $this.type
   }
 
   # Getter method to return change previous value
@@ -608,5 +602,126 @@ class MaatChange {
     }
     
     return $resString
+  }
+}
+
+##############################################################################
+# MaatComparator class : list changes between MaatResults to compare them
+##############################################################################
+class MaatComparator {
+  [MaatChange[]]$changeList = @()
+  [MaatResult]$resultA
+  [MaatResult]$resultB
+
+  # Constructors
+  MaatComparator([MaatResult]$resA) {
+    $this.resultA = $resA
+  }
+
+  MaatComparator([MaatResult]$resA, [MaatResult]$resB) {
+    $this.resultA = $resA
+    $this.resultB = $resB
+  }
+
+  # Getter method to return result A
+  [MaatResult] GetResultA() {
+    return $this.resultA
+  }
+
+  # Getter method to return result B
+  [MaatResult] GetResultB() {
+    return $this.resultB
+  }
+
+  # Getter method to return change list
+  [MaatChange[]] GetChangeList() {
+    return $this.changeList
+  }
+
+  # Method returning current comparator changes based on a type
+  [MaatChange[]] GetChangesByType([string]$type) {
+    return $this.changeList.Where({ $_.GetType() -eq $type })
+  }
+
+  # Compare two MaatResult occurrences
+  [void] CompareTwoMaatResults() {
+
+    $resADirs = $this.resultA.GetAllUniqueDirectories()
+    $resBDirs = $this.resultB.GetAllUniqueDirectories()
+
+    foreach ($dir in ($resADirs + $resBDirs)) {
+      $dirSearchInResA = $resADirs.Where({ $_.GetName() -eq $dir.GetName() })
+      $dirInResA = $dirSearchInResA[0]
+
+      $dirSearchInResB = $resBDirs.Where({ $_.GetName() -eq $dir.GetName() })
+      $dirInResB = $dirSearchInResB[0]
+      
+      if (($dirSearchInResA.count -gt 0) -and ($dirSearchInResB.count -gt 0)) {
+        $usersFromResA = $dirInResA.GetAccessUsers()
+        $usersFromResB = $dirInResB.GetAccessUsers()
+
+        foreach ($accessUser in ($usersFromResA + $usersFromResB)) {
+          $usrSearchInResA = $usersFromResA.Where({ $_.GetSAN() -eq $accessUser.GetSAN() })
+          $usrInResA = $usrSearchInResA[0]
+
+          $usrSearchInResB = $usersFromResB.Where({ $_.GetSAN() -eq $accessUser.GetSAN })
+          $usrInResB = $usrSearchInResB[0]
+
+          # If user is present in both res : check if it changed
+          if (($usrSearchInResA.count -gt 0) -and ($usrSearchInResB.count -gt 0)) {
+            # Compare permissions
+            $usrAPerm = $usrInResA.GetDirPermissions($dirInResA)
+            $usrBPerm = $usrInResB.GetDirPermissions($dirInResB)
+            $permChanged = $usrAPerm -ne $usrBPerm
+
+            # New MaatChange if user permissions changed
+            if ($permChanged) {
+              $permChange = [MaatChange]::new("$($accessUser.userName) permissions changed over $($dir.GetName())", "user")
+              $permChange.SetOldValue($usrInResA.userPermissions)
+              $permChange.SetNewValue($usrInResB.userPermissions)
+              
+              $this.changeList += $permChange
+            }
+
+            # Compare access groups
+            $usrAGroups = $usrInResA.GetDirAccessGroupsByPerm($dirInResA)
+            $usrAGroupsMatchingPerm = $usrAGroups[$usrAPerm] | foreach-object { $_.GetName() }
+
+            $usrBGroups = $usrInResA.GetDirAccessGroupsByPerm($dirInResB)
+            $usrBGroupsMatchingPerm = $usrBGroups[$usrBPerm] | foreach-object { $_.GetName() }
+
+            $accessGroupChanged = $usrAGroupsMatchingPerm -ne $usrBGroupsMatchingPerm
+
+            # New MaatChange if user access groups changed
+            if ($accessGroupChanged) {
+              $accessGroupChange = [MaatChange]::new("$($accessUser.GetSan()) access groups changed over $($dir.GetName())", "user")
+              $accessGroupChange.SetOldValue(($usrInResA.accessGroups -join ', '))
+              $accessGroupChange.SetNewValue(($usrInResB.accessGroups -join ', '))
+
+              $this.changeList += $accessGroupChange
+            }
+          }
+          # If user is present in old res but not in the new
+          elseif (($usrSearchInResA.count -gt 0)) {
+            $removedUserChange = [MaatChange]::new("$($usrInResA.GetSAN()) lost access permission over $($dir.GetName())", "user")
+            $removedUserChange.SetOldValue($usrInResA.GetDirPermissions($dirInResA))
+
+            $this.changeList += $removedUserChange
+          }
+          # Else user is present in new res but not in the old
+          else {
+            $newUserChange = [MaatChange]::new("$($usrInResB.GetSAN()) gain access permission over $($dir.GetName())", "user")
+            $newUserChange.SetNewValue($usrInResB.GetDirPermissions($dirInResB))
+
+            $this.changeList += $newUserChange
+          }
+        }
+      }
+      else {
+        $newDirChange = [MaatChange]::new("New directory monitored", "directory")
+        $newDirChange.SetNewValue($dir.GetName())
+        $this.changeList += $newDirChange
+      }
+    }
   }
 }
