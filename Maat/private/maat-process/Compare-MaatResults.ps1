@@ -7,7 +7,7 @@ function Compare-MaatResults {
       ValueFromPipelineByPropertyName = $false
     )]
     [ValidateNotNullOrEmpty()]
-    [object[]]  $OldResults,
+    [MaatResult]  $FirstResult,
 
     [Parameter(
       Mandatory = $true,
@@ -15,66 +15,25 @@ function Compare-MaatResults {
       ValueFromPipelineByPropertyName = $false
     )]
     [ValidateNotNullOrEmpty()]
-    [object[]]  $NewResults
+    [MaatResult]  $SecondResult
   )
 
-  [AccessChange[]]$resultChanges = @()
+  try {
+    [MaatChange[]]$resultComparison = $maatResultToCompare1.CompareMaatResults($maatResultToCompare0)
 
-  # Helper function to search directory xml node in xml results
-  function Search-DirByName {
-    [CmdletBinding()]
-    param (
-      [string] $dirName
-    )
-    
-    $dirSearch = $OldResults.SelectNodes("//dir[dir_name='$dirName']")
-
-    if ($dirSearch.count -eq 0) {
-      $resultChanges += [AccessChange]::new("New directory result", "", $dirName)
-    }
-
-    return $dirSearch
-  }
-
-  # Helper function to search access group in directory xml node
-  function Search-GroupInDir {
-    [CmdletBinding()]
-    param (
-      [string] $groupName,
-      [xmlelement] $dir
-    )
-
-    $groupSearch = $dir.SelectNodes("*/group[g_name='$groupName']")
-
-    if ($groupSearch.count -eq 0) {
-      $resultChanges += [AccessChange]::new("New access group related to $($dir.dir_name)", "", $groupName)
-    }
-
-    return $groupSearch
-  }
-
-  foreach ($newResDir in $NewResults.SelectNodes("//dir")) {
-    # Check if the current directory in new results is present in old result
-    $newResDirInOldResults = Search-DirByName $newResDir.dir_name
-
-    if ($newResDirInOldResults.count -gt 0) {
-      foreach ($newGroup in $newResDir.SelectNodes("*/group")) {
-        # Same for each access group in current directory
-        $newGroupInOldResultsDir = Search-GroupInDir $newGroup.g_name $newResDirInOldResults[0]
-
-        if ($newGroupInOldResultsDir.count -gt 0) {
-
-          # Permission change
-          if ($newGroup.g_permissions -ne $newGroupInOldResultsDir.g_permissions) {
-            $resultChanges += [AccessChange]::new(
-              "Permissions change for access group $($newGroup.g_name) on $($newResDir.dir_name)",
-              $newGroupInOldResultsDir.g_permissions,
-              $newGroup.g_permissions
-            )
-          }
-        }
+    if ($resultComparison.count -eq 0) {
+      Write-Host "$($resultComparison.count) changes between $($maatResultToCompare0.ToString()) and $($maatResultToCompare1.ToString())"
+      foreach ($change in $resultComparison) {
+        Write-Host $change.ToString()
       }
     }
+    else {
+      Write-Host "No changes between $($maatResultToCompare0.ToString()) and $($maatResultToCompare1.ToString())"
+    }
+  }
+  catch {
+    Write-Error "Maat::Error while trying to compare results:`n$_"
   }
 
+  return $resultComparison
 }
