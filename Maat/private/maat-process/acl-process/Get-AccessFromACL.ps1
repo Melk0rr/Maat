@@ -24,9 +24,9 @@ function Get-AccessFromACL {
     $adACLGroups = Get-ADGroupFromACL -IdentityReference $aclAccess.IdentityReference
 
     # Create access group instance + bind it to the directory 
-    $maatAccessGroup = $dir.GetUniqueAccessGroupByName($adACLGroups[0].Name, $accessPermissions)
+    $maatAccessGroup = $dir.GetResultRef().GetUniqueAccessGroupByName($adACLGroups[0].Name, $accessPermissions)
     $maatAccessGroup.AddRelatedDirectory($dir)
-    $dir.AddAccessGroup($maatAccessGroup)
+    $dir.AddACLGroup($maatAccessGroup)
 
     # Get AD Groups based on name of the retreived group with identity reference
     # If identity reference is an sid, it is linked to only one domain. But multiple domains can be provided
