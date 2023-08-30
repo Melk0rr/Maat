@@ -229,6 +229,15 @@ class MaatDirectory {
     $this.dirAccessGroups += $newAccessGroup
   }
 
+  # Method to return not built in directory ACL accesses
+  [object[]] GetNonBuiltInACLAccesses() {
+    $acl = Get-ACL -Path $this.GetPath()
+    $nonBuiltIn = $acl.Access.Where({ ($_.IdentityReference -notlike "*NT*\SYST*") -and ($_.IdentityReference -notlike "BUILTIN\*") })
+
+    Write-Host "MaatDirectory::$($nonBuiltIn.count) ACL groups give access to '$($this.GetName())'"
+    return $nonBuiltIn
+  }
+
   # Method to add an access group to ACL list
   [void] AddACLGroup([MaatAccessGroup]$newAccessGroup) {
     if ($this.IsAccessedByGroupViaACL($newAccessGroup.GetName())) {

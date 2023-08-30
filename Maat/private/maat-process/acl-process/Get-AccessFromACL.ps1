@@ -10,12 +10,11 @@ function Get-AccessFromACL {
     $Dir
   )
 
-  $dirName = $dir.GetName()
   $acl = Get-ACL -Path $dir.GetPath()
 
   # $builtInAccess = $acl.Access.Where({ ($_.IdentityReference -like "*NT*\SYST*") -and ($_.IdentityReference -like "BUILTIN\Admin*") })
   $nonBuiltInAccesses = $acl.Access.Where({ ($_.IdentityReference -notlike "*NT*\SYST*") -and ($_.IdentityReference -notlike "BUILTIN\*") })
-  Write-Host "`n$($nonBuiltInAccesses.count) groups give access to '$dirName' :"
+  Write-Host "`n$($nonBuiltInAccesses.count) groups give access to '$($dir.GetName())' :"
 
   # 1 acl access = 1 identity reference
   foreach ($aclAccess in $nonBuiltInAccesses) {

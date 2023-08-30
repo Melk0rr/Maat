@@ -10,11 +10,9 @@ function Get-AccessFromConfig {
     $Dir
   )
 
-  $dirName = $dir.GetName()
-
   # Retreive every mention of the specified directory
   $dirAccessGroups = $dir.GetAccessGroups()
-  Write-Host "`n$($dirAccessGroups.count) groups give access to '$dirName' :"
+  Write-Host "`n$($dirAccessGroups.count) groups give access to '$($dir.GetName())' :"
 
   foreach ($maatAccessGroup in $dirAccessGroups) {
     Write-Host "$($maatAccessGroup.GetName()): $($maatAccessGroup.GetPermissions())"
