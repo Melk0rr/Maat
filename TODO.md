@@ -4,7 +4,7 @@
 - [x] Integrate POO
 - [x] Compare access from configuration and from ACLs
 - [x] Compare previous and new results
-- [ ] Possibilité de comparer le résultat actuel avec un résultat souhaité
+- [ ] Compare current state with 
 - [ ] Possibilité de vérifier les accès répertoires de manière récursive
 - [ ] v2 : Get given User(s) access based on results
 - [ ] v2 : Get given Group access based on results
