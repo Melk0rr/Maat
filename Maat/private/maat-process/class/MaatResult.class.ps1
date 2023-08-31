@@ -287,6 +287,7 @@ class MaatDirectory {
 class MaatAccess {
   [MaatDirectory] $targetDirectory
   [string]$permissions
+  [string]$type
 
   # Constructors
   MaatAccess([MaatDirectory]$dir, [string]$perm) {
