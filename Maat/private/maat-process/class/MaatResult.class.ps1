@@ -48,7 +48,7 @@ class MaatResult {
   }
 
   # Returns the list of unique directories
-  [MaatDirectory] GetAllUniqueDirectories() {
+  [MaatDirectory[]] GetAllUniqueDirectories() {
     return $this.resDirectories
   }
 
@@ -82,7 +82,7 @@ class MaatResult {
       $this.uniqueAccessGroups += $uniqueAccessGroup
     }
     else {
-      $searchUniqueAccessGroup[0].AddAccess($access)
+      $searchUniqueAccessGroup[0].AddAccess($access, $true)
       $uniqueAccessGroup = $searchUniqueAccessGroup[0]
     }
 
@@ -522,8 +522,8 @@ class MaatAccessGroupMember {
   }
 
   # Get a list of group the current user is a member of and related to the given directory
-  [MaatAccessGroup] GetMemberGroupsRelatedToDir([MaatDirectory]$dir) {
-    return $this.memberAccessGroups.Where({ $_.GivesPermissionsOnDir($dir) })[0]
+  [MaatAccessGroup[]] GetMemberGroupsRelatedToDir([MaatDirectory]$dir) {
+    return $this.memberAccessGroups.Where({ $_.GivesPermissionsOnDir($dir) })
   }
 
   # Method to retreive user access groups with given perms over the given dir
@@ -581,8 +581,8 @@ class MaatAccessGroupMember {
 class MaatChange {
   [string]$changeDescription
   [string]$type
-  [type]$oldValue
-  [type]$newValue
+  [string]$oldValue
+  [string]$newValue
 
   #Constructors
   MaatChange([string]$description, [string]$type) {
@@ -608,12 +608,12 @@ class MaatChange {
   }
 
   # Getter method to return change previous value
-  [type] GetOldValue() {
+  [string] GetOldValue() {
     return $this.oldValue
   }
 
   # Getter method to return change previous value
-  [type] GetNewValue() {
+  [string] GetNewValue() {
     return $this.newValue
   }
 
@@ -632,13 +632,13 @@ class MaatChange {
     $resString = "$($this.changeDescription)"
 
     if ($this.oldValue -and $this.newValue) {
-      $resString = "* $resString : $($this.oldValue) => $($this.newValue) *"
+      $resString = "* $resString : $($this.oldValue) => $($this.newValue)"
     }
     elseif ($this.oldValue) {
-      $resString = "- $resString : $($this.oldValue) -"
+      $resString = "- $resString : $($this.oldValue)"
     }
     else {
-      $resString = "+ $resString : $($this.newValue) +"
+      $resString = "+ $resString : $($this.newValue)"
     }
     
     return $resString
@@ -683,13 +683,48 @@ class MaatComparator {
     return $this.changeList.Where({ $_.GetType() -eq $type })
   }
 
+  # Method to filter duplicate maat directories from a list
+  [MaatDirectory[]] GetUniqueDirList([MaatDirectory[]]$dirList) {
+    $uniqueDirList = @()
+
+    foreach ($dir in $dirList) {
+      $searchDir = $uniqueDirList.Where({ $_.GetName() -eq $dir.GetName() })
+
+      if ($searchDir.count -eq 0) {
+        $uniqueDirList += $dir
+      }
+    }
+
+    return $uniqueDirList
+  }
+
+  # Method to compare users access groups 
+  [bool] CompareUserAccessGroups([MaatAccessGroup[]]$userAGroups, [MaatAccessGroup[]]$userBGroups) {
+    $equal = $true
+
+    $usrAGrNames = $userAGroups | foreach-object { $_.GetName() }
+    $usrBGrNames = $userBGroups | foreach-object { $_.GetName() }
+    if ($usrAGrNames.count -ne $usrBGrNames.count) {
+      $equal = $false
+
+    } else {
+      foreach ($magName in $usrAGrNames) {
+        if ($magName -notin $usrBGrNames) {
+          $equal = $false
+        }
+      }
+    }
+
+    return $equal
+  }
+
   # Compare two MaatResult occurrences
-  [void] CompareTwoMaatResults() {
+  [void] CompareMaatResults() {
 
     $resADirs = $this.resultA.GetAllUniqueDirectories()
     $resBDirs = $this.resultB.GetAllUniqueDirectories()
 
-    foreach ($dir in ($resADirs + $resBDirs)) {
+    foreach ($dir in $this.GetUniqueDirList(($resADirs + $resBDirs))) {
       $dirSearchInResA = $resADirs.Where({ $_.GetName() -eq $dir.GetName() })
       $dirInResA = $dirSearchInResA[0]
 
@@ -704,7 +739,7 @@ class MaatComparator {
           $usrSearchInResA = $usersFromResA.Where({ $_.GetSAN() -eq $accessUser.GetSAN() })
           $usrInResA = $usrSearchInResA[0]
 
-          $usrSearchInResB = $usersFromResB.Where({ $_.GetSAN() -eq $accessUser.GetSAN })
+          $usrSearchInResB = $usersFromResB.Where({ $_.GetSAN() -eq $accessUser.GetSAN() })
           $usrInResB = $usrSearchInResB[0]
 
           # If user is present in both res : check if it changed
@@ -725,15 +760,11 @@ class MaatComparator {
 
             # Compare access groups
             $usrAGroups = $usrInResA.GetDirAccessGroupsByPerm($dirInResA)
-            $usrAGroupsMatchingPerm = $usrAGroups[$usrAPerm] | foreach-object { $_.GetName() }
-
-            $usrBGroups = $usrInResA.GetDirAccessGroupsByPerm($dirInResB)
-            $usrBGroupsMatchingPerm = $usrBGroups[$usrBPerm] | foreach-object { $_.GetName() }
-
-            $accessGroupChanged = $usrAGroupsMatchingPerm -ne $usrBGroupsMatchingPerm
+            $usrBGroups = $usrInResB.GetDirAccessGroupsByPerm($dirInResB)
+            $accessGroupsAreEquals = $this.CompareUserAccessGroups($usrAGroups[$usrAPerm], $usrBGroups[$usrBPerm])
 
             # New MaatChange if user access groups changed
-            if ($accessGroupChanged) {
+            if (!$accessGroupsAreEquals) {
               $accessGroupChange = [MaatChange]::new("$($accessUser.GetSan()) access groups changed over $($dir.GetName())", "user")
               $accessGroupChange.SetOldValue(($usrInResA.accessGroups -join ', '))
               $accessGroupChange.SetNewValue(($usrInResB.accessGroups -join ', '))
@@ -751,7 +782,9 @@ class MaatComparator {
           # Else user is present in new res but not in the old
           else {
             $newUserChange = [MaatChange]::new("$($usrInResB.GetSAN()) gain access permission over $($dir.GetName())", "user")
-            $newUserChange.SetNewValue($usrInResB.GetDirPermissions($dirInResB))
+            $newUserPerm = $usrInResB.GetDirPermissions($dirInResB)
+            $newUserAccessGroups = $usrInResB.GetDirAccessGroupsByPerm($dirInResB)[$newUserPerm] | foreach-object { $_.GetName() }
+            $newUserChange.SetNewValue("$newUserPerm ($newUserAccessGroups)")
 
             $this.changeList += $newUserChange
           }
@@ -762,6 +795,19 @@ class MaatComparator {
         $newDirChange.SetNewValue($dir.GetName())
         $this.changeList += $newDirChange
       }
+    }
+  }
+
+  # Method to report comparison result
+  [void] GetComparisonFeedback () {
+    if ($this.changeList.count -gt 0) {
+      Write-Host "$($this.changeList.count) changes between $($this.resultA.ToString()) and $($this.resultB.ToString())"
+      foreach ($change in $this.changeList) {
+        Write-Host $change.ToString()
+      }
+    }
+    else {
+      Write-Host "No changes between $($this.resultA.ToString()) and $($this.resultB.ToString())"
     }
   }
 }

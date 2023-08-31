@@ -15,7 +15,7 @@ function Get-AccessFromConfig {
   Write-Host "`n$($dirAccessGroups.count) groups give access to '$($dir.GetName())' :"
 
   foreach ($maatAccessGroup in $dirAccessGroups) {
-    Write-Host "$($maatAccessGroup.GetName()): $($maatAccessGroup.GetPermissions())"
+    Write-Host "$($maatAccessGroup.GetName()): $($maatAccessGroup.GetDirAccess($dir).GetPermissions())"
 
     # Get the group node related to the directory to retreive its name
     $accessGroupsInDomain = $adGroups.Where({ $_.Name -eq $maatAccessGroup.GetName() })

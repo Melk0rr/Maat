@@ -58,12 +58,12 @@ function Invoke-Maat {
     [switch]  $Help,
 
     [Parameter(
-      Mandatory = $true,
+      Mandatory = $false,
       ValueFromPipeline = $false,
       ValueFromPipelineByPropertyName = $false
     )]
     [ValidateNotNullOrEmpty()]
-    [string]  $OutPath,
+    [string]  $OutPath = "$PSScriptRoot",
 
     [Parameter(
       Mandatory = $false,
@@ -110,7 +110,7 @@ function Invoke-Maat {
       throw "Maat::Invalid output directory !"
     }
 
-    Write-Host $banner -f Yellow
+    Write-Host $banner`n -f Yellow
     $startTime = Get-Date
 
     if ($ConfigCheck.IsPresent -or $ACLCheck.IsPresent) {
@@ -159,7 +159,7 @@ function Invoke-Maat {
           Get-AccessFromACL $maatDir
         }
 
-        $maatResultFromCurrentRun.AddDir($maatACLDir)
+        $maatResultFromCurrentRun.AddDir($maatDir)
       }
 
       catch {
@@ -168,7 +168,7 @@ function Invoke-Maat {
     }
 
     # Result comparison
-    if ($CompareResults.IsPresent) {
+    if ($CompareResults) {
       [xml]$xmlResultToCompare0 = Get-Content $CompareResults[0]
       $maatResultToCompare0 = [MaatResult]::new($xmlResultToCompare0)
 
@@ -180,14 +180,16 @@ function Invoke-Maat {
         $maatResultToCompare1 = $maatResultFromCurrentRun
       }
 
-      $resultComparison = Compare-MaatResults $maatResultToCompare0 $maatResultToCompare1
+      $comparator = [MaatComparator]::new($maatResultToCompare0, $maatResultToCompare1)
+      $comparator.CompareMaatResults()
+      $comparator.GetComparisonFeedback()
     }
   }
 
   END {
     # Save results in xml file
     if ($ConfigCheck.IsPresent -or $ACLCheck.IsPresent) {
-      Write-Host "Saving result to $OutPath" -f Green
+      Write-Host "`nSaving result to $OutPath" -f Green
       $maatResultFromCurrentRun.SaveXml($OutPath, $Override)
     }
     
