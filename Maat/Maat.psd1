@@ -57,9 +57,9 @@
   # RequiredAssemblies = @()
 
   # Script files (.ps1) that are run in the caller's environment prior to importing this module.
-  ScriptsToProcess  = @(
-    "private\maat-process\class\MaatResult.class.ps1"
-  )
+  # ScriptsToProcess  = @(
+  #   "private\maat-process\class\MaatResult.class.ps1"
+  # )
 
   # Type files (.ps1xml) to be loaded when importing this module
   # TypesToProcess = @()
