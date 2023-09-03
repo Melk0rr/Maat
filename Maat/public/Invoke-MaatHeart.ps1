@@ -1,11 +1,11 @@
-function Invoke-Maat {
+function Invoke-MaatHeart {
   <#
   .SYNOPSIS
     This script will retreive access informations related to directories 
     specified in the configuration file
 
   .NOTES
-    Name: Invoke-ADRetreiver
+    Name: Invoke-MaatHeart
     Author: JL
     Version: 2.2
     LastUpdated: 2023-Jun-13
@@ -32,14 +32,6 @@ function Invoke-Maat {
     )]
     [ValidateNotNullOrEmpty()]
     [switch]  $ACLCheck,
-
-    [Parameter(
-      Mandatory = $false,
-      ValueFromPipeline = $false,
-      ValueFromPipelineByPropertyName = $false
-    )]
-    [ValidateNotNullOrEmpty()]
-    [string[]]  $CompareResults,
 
     [Parameter(
       Mandatory = $false,
@@ -103,11 +95,11 @@ function Invoke-Maat {
     }
 
     if (!(Test-Path -Path $XMLConfigPath -PathType Leaf)) {
-      throw "Maat::Invalid XML configuration path !"
+      throw "MaatHeart::Invalid XML configuration path !"
     }
 
     if (!(Test-Path -Path $OutPath -PathType Container)) {
-      throw "Maat::Invalid output directory !"
+      throw "MaatHeart::Invalid output directory !"
     }
 
     Write-Host $banner`n -f Yellow
@@ -123,24 +115,6 @@ function Invoke-Maat {
       
       $accessDirs = $accessConfiguration.SelectNodes("//dir")
       Write-Host "`nRetreiving access for $($accessDirs.count) directories..."
-    }
-
-    # Check paths for results to compare
-    if ($CompareResults.IsPresent) {
-      $invalidResultPaths = @()
-      if (!(Test-Path -Path $CompareResults[0] -PathType Leaf)) {
-        $invalidResultPaths += $CompareResults[0]
-      }
-
-      if ($CompareResults.count -gt 1) {
-        if (!(Test-Path -Path $CompareResults[1] -PathType Leaf)) {
-          $invalidResultPaths += $CompareResults[1]
-        }
-      }
-
-      if ($invalidResultPaths.count -gt 0) {
-        throw "Maat::Invalid XML result path: $invalidResultPaths !"
-      }
     }
   }
 
@@ -165,24 +139,6 @@ function Invoke-Maat {
       catch {
         Write-Error "Maat::Error while retreiving $($dir.dir_name) access:`n$_"
       }
-    }
-
-    # Result comparison
-    if ($CompareResults) {
-      [xml]$xmlResultToCompare0 = Get-Content $CompareResults[0]
-      $maatResultToCompare0 = [MaatResult]::new($xmlResultToCompare0)
-
-      if ($CompareResults.count -gt 1) {
-        [xml]$xmlResultToCompare1 = Get-Content $CompareResults[1]
-        $maatResultToCompare1 = [MaatResult]::new($xmlResultToCompare1)
-      }
-      else {
-        $maatResultToCompare1 = $maatResultFromCurrentRun
-      }
-
-      $comparator = [MaatComparator]::new($maatResultToCompare0, $maatResultToCompare1)
-      $comparator.CompareMaatResults()
-      $comparator.GetComparisonFeedback()
     }
   }
 

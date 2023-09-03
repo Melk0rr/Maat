@@ -160,7 +160,7 @@ class MaatDirectory {
     $this.resultRef = $result
 
     foreach ($accessGroupXml in $dirXmlContent.SelectNodes("*/group")) {
-      [MaatAccess]$accessToCurrentDir = [MaatAccess]::new($this, $accessGroupXml.g_permissions)
+      [MaatAccess]$accessToCurrentDir = [MaatAccess]::new($this, $accessGroupXml.g_permissions, "config")
       [MaatAccessGroup]$uniqueRelatedAccessGroup = $this.resultRef.GetUniqueAccessGroup($accessGroupXml.g_name, $accessToCurrentDir)
 
       if ($accessGroupXml.SelectNodes("*/member").count -gt 0) {
@@ -287,16 +287,17 @@ class MaatDirectory {
 class MaatAccess {
   [MaatDirectory] $targetDirectory
   [string]$permissions
-  [string]$type
+  [string]$type = "config"
 
   # Constructors
-  MaatAccess([MaatDirectory]$dir, [string]$perm) {
+  MaatAccess([MaatDirectory]$dir, [string]$perm, [string]$type) {
     if ($perm -notin "R", "RW") {
       throw "MaatAccess::Invalid permissions provided: $perm"
     }
     
     $this.targetDirectory = $dir
     $this.permissions = $perm
+    $this.type = $type
   }
 
   # Getter method to return targeted directory
@@ -309,6 +310,12 @@ class MaatAccess {
     return $this.permissions
   }
 
+  # Getter method to return access type
+  [string] GetAccessType() {
+    return $this.type
+  }
+
+  # Setter method to change permission value
   [void] SetPermissions([string] $perm) {
     if ($perm -in "R", "RW") {
       $this.permissions = $perm
@@ -399,6 +406,11 @@ class MaatAccessGroup {
   # Method to return Accesses over given dir
   [MaatAccess] GetDirAccess([MaatDirectory]$dir) {
     return $this.accesses.Where({ $_.GetDirectory().GetName() -eq $dir.GetName() })[0]
+  }
+
+  # Method to return accesses based on a type
+  [MaatAccess[]] GetAccessByType([string]$accessType) {
+    return $this.accesses.Where({ $_.GetType() -eq $accessType })
   }
 
   # Method to change access permissions over a dir
@@ -708,7 +720,8 @@ class MaatComparator {
     if ($usrAGrNames.count -ne $usrBGrNames.count) {
       $equal = $false
 
-    } else {
+    }
+    else {
       foreach ($magName in $usrAGrNames) {
         if ($magName -notin $usrBGrNames) {
           $equal = $false
