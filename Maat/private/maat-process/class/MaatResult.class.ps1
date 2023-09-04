@@ -7,6 +7,7 @@ class MaatResult {
   [MaatDirectory[]]$resDirectories = @()
   [MaatAccessGroup[]]$uniqueAccessGroups = @()
   [MaatAccessGroupMember[]]$uniqueAccessUsers = @()
+  [bool]$debugMode = $false
 
   # Constructors
   MaatResult([string]$title) {
@@ -30,6 +31,11 @@ class MaatResult {
   # Getter method to return result date
   [string] GetDate() {
     return $this.resDate
+  }
+
+  # Getter method for the debug mode
+  [bool] GetDebugMode() {
+    return $this.debugMode
   }
 
   # Search a MaatDirectory by name
@@ -60,6 +66,11 @@ class MaatResult {
   # Returns the list of unique members
   [MaatAccessGroupMember[]] GetAllUniqueAccessGroupMembers() {
     return $this.uniqueAccessUsers
+  }
+
+  # Setter method to change debug mode
+  [void] SetDebugMode([bool]$mode) {
+    $this.debugMode = $mode
   }
 
   # Adds a new unique maat directory
@@ -106,7 +117,7 @@ class MaatResult {
   }
 
   # Method to return a string describing current instance
-  [string] ToString([bool]$short = $true) {
+  [string] ToString() {
     $resString = "$($this.GetTitle())($($this.GetDate()))"
     return $resString
   }
@@ -346,7 +357,6 @@ class MaatAccessGroup {
   [string]$groupName
   [MaatAccess[]]$accesses = @()
   [MaatAccessGroupMember[]]$groupMembers = @()
-  [MaatResult]$resultRef
 
   # Constructors
   MaatAccessGroup([string]$name, [MaatAccess]$access) {
@@ -452,7 +462,9 @@ class MaatAccessGroup {
   # Method to add a group member
   [void] AddMember([MaatAccessGroupMember]$newMember) {
     if ($newMember.GetDN() -in $this.GetMembersDN()) {
-      Write-Host "Member $($newMember.GetSAN()) is already a member of $($this.groupName)"
+      if ($this.GetResultRef().GetDebugMode() -eq $true) {
+        Write-Host "Member $($newMember.GetSAN()) is already a member of $($this.groupName)"
+      }
       return
     }
 
