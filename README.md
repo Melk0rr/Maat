@@ -2,32 +2,16 @@
 
 
 ```
-                           .=#@%%%%#=.  
-                         -%%+. :----+@# 
-                       -%%=.:----: :-=%#
-                     .*@+:-:----..--: =@
-                    =@*-----:::::=::.=##
-                   *%-::--:::-. -#@##@* 
-                 .##-:::--::-:.    ..   
-                -@#::----:.:-.    ,8.       ,8.       
-               +@+::---:..:-:    ,888.     ,888.       
-             :%%==-:::::-:::.   .'8888.   .'8888.        
-            *@*:-:::---:.:-.   ,8.'8888. ,8.'8888.         
-          .%@=-::..---:.:-.   ,8'8.'8888,8^8.'8888.          
-         :@*:.  .:---: :-.   ,8' '8.'8888' '8.'8888.           
-        -@+-:::----:  :-.   ,8'   '8.'88'   '8.'8888.            
-      .*@-         .:::.   ,8'  e  '8.''  e  '8.'8888.             
-     -@#.                 ,8'  d8b  '8   d8b  '8.'8888.              
-    *@=                  ,8'  /Y88b  '  /Y88b  '8.'8888.               
-  .%%.                  ,8'  /  Y88b   /  Y88b  '8.'8888.                
- =@*                   ,8'  /____Y88b /____Y88b  '8.'8888.                 
-#%-                   ,8'  /      Y88b      Y88b  '8.'8888.                  
-
-8888888888888888888888888888 888888888888888888888888888888
-                           8 8888
-                           8 8888
-                           8 8888
-                           8 8888
+                        8b    d8    db       db    888888 
+                        88b  d88   dPYb     dPYb     88   
+                        88YbdP88  dP__Yb   dP__Yb    88   
+                        88 YY 88 dP""""Yb dP""""Yb   88                  
+     :-=+***+*#*++%##%*%#***%##%*%##%%*#%%####*********+++=-
+  -*%+:-. : :+ : +-.+ -. - =-:= =-.=: :-                    
+:##== :- = := = =..= =. = =.:= +..=  -                      
+#%.*  + :- + - :- = =: + -:.+ +. =  =                       
+#%.= :- *.=:        : -..= + :- +  +.                       
+.#%+ := =-%=               . .  - .=
 
 ```
 
@@ -51,13 +35,22 @@ Alternatively, you can just import it directly from the project directory with:
 
 ## Usage
       Usage:
-        Invoke-Maat
-        Invoke-Maat -Help
-        Invoke-Maat -Version
+        Invoke-MaatHeart
+        Invoke-MaatHeart -Help
+        Invoke-MaatHeart -Version
         
       Options:
-        -Help                          show this help message and exit
-        -Version                       show version and exit
+        -Help             show this help message and exit
+        -Version          show version and exit
+
+      ---------------------------------------------------------------
+
+      Usage:
+        
+
+      Options:
+        -Help             show this help message and exit
+        -Version          show version and exit
 
       Help:
         For help using this tool, please open an issue on the Github repository:
