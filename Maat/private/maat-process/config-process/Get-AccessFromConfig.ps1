@@ -21,7 +21,7 @@ function Get-AccessFromConfig {
     $accessGroupsInDomain = $adGroups.Where({ $_.Name -eq $maatAccessGroup.GetName() })
 
     foreach ($adAccessGroup in $accessGroupsInDomain) {
-      Get-AccessRelatedUsers $adAccessGroup $maatAccessGroup
+      $maatAccessGroup.SetAccessMembersFromADGroup($adAccessGroup)
     }
   }
 

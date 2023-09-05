@@ -33,7 +33,7 @@ function Get-AccessFromACL {
     # If identity reference is an sid, it is linked to only one domain. But multiple domains can be provided
     # Multiple domains may share group architecture, so a group name can be found in multiple domains
     foreach ($adACLGr in $adACLGroups) {
-      Get-AccessRelatedUsers $adACLGr $maatAccessGroup
+      $maatAccessGroup.SetAccessMembersFromADGroup($adACLGr)
     }
   }
 
