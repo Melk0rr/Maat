@@ -119,7 +119,7 @@ function Invoke-MaatHeart {
       $accessGroupNames = $accessConfiguration.SelectNodes("//g_name").innerText | select-object -unique
       $adGroups = Get-AccessADGroups -GroupList $accessGroupNames -ServerList $Server
 
-      $maatResultFromCurrentRun = [MaatResult]::new("maat_config_res")
+      $maatResultFromCurrentRun = [MaatResult]::new("maat_config_res", $accessConfiguration)
 
       if ($DebugMode.IsPresent) {
         $maatResultFromCurrentRun.SetDebugMode($true)
