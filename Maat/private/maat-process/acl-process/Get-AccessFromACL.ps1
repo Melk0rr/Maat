@@ -10,6 +10,8 @@ function Get-AccessFromACL {
     $Dir
   )
 
+  Write-Host "Checking ACL on $($dir.GetName())..."
+
   # 1 acl access = 1 identity reference
   foreach ($aclAccess in $dir.GetNonBuiltInACLAccesses()) {
     # Translate MS file system rights to simple R/RW short string
@@ -29,9 +31,6 @@ function Get-AccessFromACL {
     $maatAccessGroup = $dir.GetResultRef().GetUniqueAccessGroup($adACLGroups[0].Name, $maatAccessToDir)
     $dir.AddAccessGroup($maatAccessGroup)
 
-    # Get AD Groups based on name of the retreived group with identity reference
-    # If identity reference is an sid, it is linked to only one domain. But multiple domains can be provided
-    # Multiple domains may share group architecture, so a group name can be found in multiple domains
     foreach ($adACLGr in $adACLGroups) {
       Get-AccessRelatedUsers $adACLGr $maatAccessGroup
     }
