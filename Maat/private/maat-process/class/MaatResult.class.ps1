@@ -172,7 +172,6 @@ class MaatDirectory {
   [string]$dirName
   [string]$dirPath
   [MaatAccessGroup[]]$dirAccessGroups = @()
-  [MaatAccessGroup[]]$dirACLGroups = @()
   [MaatResult]$resultRef
 
   # Constructors
@@ -219,16 +218,8 @@ class MaatDirectory {
     return $this.dirAccessGroups | foreach-object { $_.GetName() }
   }
 
-  [string[]] GetACLGroupNames() {
-    return $this.dirACLGroups | foreach-object { $_.GetName() }
-  }
-
   [bool] IsAccessedByGroup([string]$groupName) {
     return ($groupName -in $this.GetAccessGroupNames())
-  }
-
-  [bool] IsAccessedByGroupViaACL([string]$groupName) {
-    return ($groupName -in $this.GetACLGroupNames())
   }
 
   # Get the list of users whom have access to the current directory
@@ -258,16 +249,6 @@ class MaatDirectory {
 
     Write-Host "MaatDirectory::$($nonBuiltIn.count) ACL groups give access to '$($this.GetName())'"
     return $nonBuiltIn
-  }
-
-  # Method to add an access group to ACL list
-  [void] AddACLGroup([MaatAccessGroup]$newAccessGroup) {
-    if ($this.IsAccessedByGroupViaACL($newAccessGroup.GetName())) {
-      Write-Host "Access group $($newAccessGroup.GetName()) is already in $($this.dirName) ACL list"
-      return
-    }
-
-    $this.dirACLGroups += $newAccessGroup
   }
 
   # Give feedback on the current dir accesses

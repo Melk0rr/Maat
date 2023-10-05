@@ -31,15 +31,7 @@ function Invoke-MaatHeart {
       ValueFromPipelineByPropertyName = $false
     )]
     [ValidateNotNullOrEmpty()]
-    [switch]  $ACLCheck,
-
-    [Parameter(
-      Mandatory = $false,
-      ValueFromPipeline = $false,
-      ValueFromPipelineByPropertyName = $false
-    )]
-    [ValidateNotNullOrEmpty()]
-    [switch]  $ConfigCheck,
+    [switch]  $SkipACL,
 
     [Parameter(
       Mandatory = $false,
@@ -114,39 +106,35 @@ function Invoke-MaatHeart {
     Write-Host $bannerHeart`n -f DarkRed
     $startTime = Get-Date
 
-    if ($ConfigCheck.IsPresent -or $ACLCheck.IsPresent) {
-      # Retreive List of group names from access configuration + get groups from AD
-      [xml]$accessConfiguration = Get-Content $XMLConfigPath
-      $accessGroupNames = $accessConfiguration.SelectNodes("//g_name").innerText | select-object -unique
-      $adGroups = Get-AccessADGroups -GroupList $accessGroupNames -ServerList $Server
+    # Retreive List of group names from access configuration + get groups from AD
+    [xml]$accessConfiguration = Get-Content $XMLConfigPath
+    $accessGroupNames = $accessConfiguration.SelectNodes("//g_name").innerText | select-object -unique
+    $adGroups = Get-AccessADGroups -GroupList $accessGroupNames -ServerList $Server
 
-      $maatResultFromCurrentRun = [MaatResult]::new("maat_config_res", $accessConfiguration)
+    $maatHeartResult = [MaatResult]::new("maat_config_res", $accessConfiguration)
 
-      if ($DebugMode.IsPresent) {
-        $maatResultFromCurrentRun.SetDebugMode($true)
-      }
-      
-      $accessDirs = $accessConfiguration.SelectNodes("//dir")
-      Write-Host "`nRetreiving access for $($accessDirs.count) directories..."
+    if ($DebugMode.IsPresent) {
+      $maatResultFromCurrentRun.SetDebugMode($true)
     }
+      
+    $accessDirs = $accessConfiguration.SelectNodes("//dir")
+    Write-Host "`nRetreiving access for $($accessDirs.count) directories..."
   }
 
   PROCESS {
     foreach ($dir in $accessDirs) {
       try {
-        $maatDir = [MaatDirectory]::new($dir, $maatResultFromCurrentRun)
+        $maatDir = [MaatDirectory]::new($dir, $maatHeartResult)
 
         # Retreive dir access from configuration and export it to a dedicated directory
-        if ($ConfigCheck.IsPresent) {
-          Get-AccessFromConfig $maatDir
-        }
+        Get-AccessFromConfig $maatDir
 
         # Retreive dir access from acl and export it to a dedicated directory
-        if ($ACLCheck.IsPresent) {
+        if (!$SkipACL.IsPresent) {
           Get-AccessFromACL $maatDir
         }
 
-        $maatResultFromCurrentRun.AddDir($maatDir)
+        $maatHeartResult.AddDir($maatDir)
       }
 
       catch {
@@ -157,10 +145,8 @@ function Invoke-MaatHeart {
 
   END {
     # Save results in xml file
-    if ($ConfigCheck.IsPresent -or $ACLCheck.IsPresent) {
-      Write-Host "`nSaving result to $OutPath" -f Green
-      $maatResultFromCurrentRun.SaveXml($OutPath, $Override)
-    }
+    Write-Host "`nSaving result to $OutPath" -f Green
+    $maatHeartResult.SaveXml($OutPath, $Override)
     
     $endTime = Get-Date
     Write-Host "`Retreiving heart took $(Get-TimeDiff $startTime $endTime)"
