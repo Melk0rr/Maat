@@ -2,32 +2,16 @@
 
 
 ```
-                           .=#@%%%%#=.  
-                         -%%+. :----+@# 
-                       -%%=.:----: :-=%#
-                     .*@+:-:----..--: =@
-                    =@*-----:::::=::.=##
-                   *%-::--:::-. -#@##@* 
-                 .##-:::--::-:.    ..   
-                -@#::----:.:-.    ,8.       ,8.       
-               +@+::---:..:-:    ,888.     ,888.       
-             :%%==-:::::-:::.   .'8888.   .'8888.        
-            *@*:-:::---:.:-.   ,8.'8888. ,8.'8888.         
-          .%@=-::..---:.:-.   ,8'8.'8888,8^8.'8888.          
-         :@*:.  .:---: :-.   ,8' '8.'8888' '8.'8888.           
-        -@+-:::----:  :-.   ,8'   '8.'88'   '8.'8888.            
-      .*@-         .:::.   ,8'  e  '8.''  e  '8.'8888.             
-     -@#.                 ,8'  d8b  '8   d8b  '8.'8888.              
-    *@=                  ,8'  /Y88b  '  /Y88b  '8.'8888.               
-  .%%.                  ,8'  /  Y88b   /  Y88b  '8.'8888.                
- =@*                   ,8'  /____Y88b /____Y88b  '8.'8888.                 
-#%-                   ,8'  /      Y88b      Y88b  '8.'8888.                  
-
-8888888888888888888888888888 888888888888888888888888888888
-                           8 8888
-                           8 8888
-                           8 8888
-                           8 8888
+                        8b    d8    db       db    888888 
+                        88b  d88   dPYb     dPYb     88   
+                        88YbdP88  dP__Yb   dP__Yb    88   
+                        88 YY 88 dP""""Yb dP""""Yb   88                  
+     :-=+***+*#*++%##%*%#***%##%*%##%%*#%%####*********+++=-
+  -*%+:-. : :+ : +-.+ -. - =-:= =-.=: :-                    
+:##== :- = := = =..= =. = =.:= +..=  -                      
+#%.*  + :- + - :- = =: + -:.+ +. =  =                       
+#%.= :- *.=:        : -..= + :- +  +.                       
+.#%+ := =-%=               . .  - .=
 
 ```
 
@@ -51,11 +35,29 @@ Alternatively, you can just import it directly from the project directory with:
 
 ## Usage
       Usage:
-        Invoke-Maat
-        Invoke-Maat -Help
-        Invoke-Maat -Version
+        Invoke-MaatHeart -XMLConfigPath CONFIGPATH -OutPath OUTPATH -Server SERVERLIST -DebubMode-Override
+        Invoke-MaatHeart -Help
+        Invoke-MaatHeart -Version
+
+      Options:
+        -DebugMode                     toggle debug mode to show more log messages
+        -Help                          show this help message and exit
+        -Outpath OUTPATH               output file path
+        -Override                      if toggled the date will not be mentioned in the result name
+        -Server SERVERLIST             server list to use for ad queries
+        -Version                       show version and exit
+        -XMLConfigPath CONFIGPATH      path of the configuration
+
+      ---------------------------------------------------------------
+
+      Usage:
+        Invoke-MaatWeighing -FeatherPath FEATHERPATH -HeartPath HEARTPATH
+        Invoke-MaatWeighing -Help
+        Invoke-MaatWeighing -Version
         
       Options:
+        -FeatherPath FEATHERPATH       path of the 'feather' result (base result)
+        -HeartPath HEARTPATH           path of the 'heart' result (new result)
         -Help                          show this help message and exit
         -Version                       show version and exit
 

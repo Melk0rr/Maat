@@ -4,17 +4,21 @@
 class MaatResult {
   [string]$resTitle = ""
   [string]$resDate
+  [xml]$rawConfiguration
   [MaatDirectory[]]$resDirectories = @()
   [MaatAccessGroup[]]$uniqueAccessGroups = @()
   [MaatAccessGroupMember[]]$uniqueAccessUsers = @()
+  [bool]$debugMode = $false
 
   # Constructors
-  MaatResult([string]$title) {
+  MaatResult([string]$title, [xml]$configuration) {
+    $this.rawConfiguration = $configuration
     $this.resTitle = $title
     $this.resDate = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
   }
 
   MaatResult([xml]$xmlContent) {
+    $this.rawConfiguration = $xmlContent
     $this.resTitle = $xmlContent.SelectSingleNode("/maat_result/title").InnerText
     $this.resDate = $xmlContent.SelectSingleNode("/maat_result/date").InnerText
     foreach ($xmlDir in $xmlContent.SelectNodes("//dir")) {
@@ -32,19 +36,9 @@ class MaatResult {
     return $this.resDate
   }
 
-  # Returns the list of unique directories
-  [MaatDirectory[]] GetAllUniqueDirectories() {
-    return $this.resDirectories
-  }
-
-  # Returns the list of unique access groups
-  [MaatAccessGroup[]] GetAllUniqueAccessGroups() {
-    return $this.uniqueAccessGroups
-  }
-
-  # Returns the list of unique members
-  [MaatAccessGroupMember[]] GetAllUniqueAccessGroupMembers() {
-    return $this.uniqueAccessUsers
+  # Getter method for the debug mode
+  [bool] GetDebugMode() {
+    return $this.debugMode
   }
 
   # Search a MaatDirectory by name
@@ -60,6 +54,34 @@ class MaatResult {
   # Search a MaatAccessGroupMember by Distinguished name
   [MaatAccessGroupMember] GetAccessGroupMemberByDN([string]$memberDN) {
     return $this.uniqueAccessUsers.Where({ $_.GetDN() -eq $memberDN })[0]
+  }
+
+  # Returns the list of unique directories
+  [MaatDirectory[]] GetAllUniqueDirectories() {
+    return $this.resDirectories
+  }
+
+  # Returns the list of unique access groups
+  [MaatAccessGroup[]] GetAllUniqueAccessGroups() {
+    return $this.uniqueAccessGroups
+  }
+
+  # Returns the list of unique members
+  [MaatAccessGroupMember[]] GetAllUniqueAccessGroupMembers() {
+    return $this.uniqueAccessUsers
+  }
+
+  # Setter method to change debug mode
+  [void] SetDebugMode([bool]$mode) {
+    $this.debugMode = $mode
+  }
+
+  # Method to return AD groups matching group names in configuration
+  [object[]] GetADGroupsFromConfig([string[]]$serverList) {
+    $accessGroupNames = $this.rawConfiguration.SelectNodes("//g_name").innerText | select-object -unique
+    $adGroups = Get-AccessADGroups -GroupList $accessGroupNames -ServerList $serverList
+
+    return $adGroups
   }
 
   # Adds a new unique maat directory
@@ -106,7 +128,7 @@ class MaatResult {
   }
 
   # Method to return a string describing current instance
-  [string] ToString([bool]$short = $true) {
+  [string] ToString() {
     $resString = "$($this.GetTitle())($($this.GetDate()))"
     return $resString
   }
@@ -432,11 +454,34 @@ class MaatAccessGroup {
   # Method to add a group member
   [void] AddMember([MaatAccessGroupMember]$newMember) {
     if ($newMember.GetDN() -in $this.GetMembersDN()) {
-      Write-Host "Member $($newMember.GetSAN()) is already a member of $($this.groupName)"
+      if ($this.GetResultRef().GetDebugMode() -eq $true) {
+        Write-Host "Member $($newMember.GetSAN()) is already a member of $($this.groupName)"
+      }
       return
     }
 
     $this.groupMembers += $newMember
+  }
+
+  # Add members to current group based on an AD group members
+  [void] SetAccessMembersFromADGroup([object]$adGroup) {
+    foreach ($accessUsr in $adGroup.members) {
+      # Formatting some basic informations about the group members
+      $memberADObject = Get-ADUser $accessUsr -Server (Split-DN $accessUsr).domain -Properties Description, EmailAddress, Modified, PasswordLastSet
+      $memberProperties = @{
+        m_distinguishedname = $accessUsr
+        m_san               = $memberADObject.samAccountName
+        m_name              = $memberADObject.name
+        m_domain            = (Split-DN $accessUsr).Domain
+        m_last_change       = $memberADObject.modified
+        m_last_pwdchange    = $memberADObject.passwordLastSet
+        m_description       = $memberADObject.description
+      }
+  
+      $newMember = $this.GetResultRef().GetUniqueAccessGroupMember($memberProperties)
+      $newMember.AddRelatedAccessGroup($this)
+      $this.AddMember($newMember)
+    }
   }
 
   # Method to convert current instance into xml string

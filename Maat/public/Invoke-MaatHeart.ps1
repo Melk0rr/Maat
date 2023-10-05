@@ -39,6 +39,14 @@ function Invoke-MaatHeart {
       ValueFromPipelineByPropertyName = $false
     )]
     [ValidateNotNullOrEmpty()]
+    [switch]  $DebugMode,
+
+    [Parameter(
+      Mandatory = $false,
+      ValueFromPipeline = $false,
+      ValueFromPipelineByPropertyName = $false
+    )]
+    [ValidateNotNullOrEmpty()]
     [switch]  $Help,
 
     [Parameter(
@@ -77,7 +85,7 @@ function Invoke-MaatHeart {
   BEGIN {
     # If using help or version options, just write and exit
     if ($Help.IsPresent) {
-      Write-Host $docString
+      Write-Host $helpHeart
       continue
     }
 
@@ -102,8 +110,12 @@ function Invoke-MaatHeart {
     $accessGroupNames = $accessConfiguration.SelectNodes("//g_name").innerText | select-object -unique
     $adGroups = Get-AccessADGroups -GroupList $accessGroupNames -ServerList $Server
 
-    $maatHeartResult = [MaatResult]::new("maat_config_res")
-    
+    $maatHeartResult = [MaatResult]::new("maat_config_res", $accessConfiguration)
+
+    if ($DebugMode.IsPresent) {
+      $maatResultFromCurrentRun.SetDebugMode($true)
+    }
+      
     $accessDirs = $accessConfiguration.SelectNodes("//dir")
     Write-Host "`nRetreiving access for $($accessDirs.count) directories..."
   }
@@ -136,7 +148,7 @@ function Invoke-MaatHeart {
     $maatHeartResult.SaveXml($OutPath, $Override)
     
     $endTime = Get-Date
-    Write-Host `n$bannerMin -f Yellow
-    Write-Host "`nJudgment took $(Get-TimeDiff $startTime $endTime)"
+    Write-Host "`Retreiving heart took $(Get-TimeDiff $startTime $endTime)"
+    Write-Host `n$bannerClose -f Yellow
   }
 }

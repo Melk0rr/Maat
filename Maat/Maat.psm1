@@ -4,7 +4,8 @@ $private = @( Get-ChildItem -Path "$PSScriptRoot\private\*.ps1" -Recurse )
 @($public + $private) | foreach-object {
   try {
     . $_.FullName
-  } catch {
+  }
+  catch {
     Write-Error -Message "Failed to import function $($_.FullName): $_"
   }
 }

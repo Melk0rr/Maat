@@ -32,7 +32,7 @@ function Get-AccessFromACL {
     $dir.AddAccessGroup($maatAccessGroup)
 
     foreach ($adACLGr in $adACLGroups) {
-      Get-AccessRelatedUsers $adACLGr $maatAccessGroup
+      $maatAccessGroup.SetAccessMembersFromADGroup($adACLGr)
     }
   }
 

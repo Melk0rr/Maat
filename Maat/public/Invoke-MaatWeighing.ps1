@@ -1,14 +1,13 @@
-function Invoke-Weighing {
+function Invoke-MaatWeighing {
   <#
   .SYNOPSIS
-    This script will retreive access informations related to directories 
-    specified in the configuration file
+    This script will compare two maat results
 
   .NOTES
     Name: Invoke-Weighing
     Author: JL
-    Version: 2.2
-    LastUpdated: 2023-Jun-13
+    Version: 2.0
+    LastUpdated: 2023-SEPT-05
 
   .EXAMPLE
 
@@ -31,13 +30,29 @@ function Invoke-Weighing {
       ValueFromPipelineByPropertyName = $false
     )]
     [ValidateNotNullOrEmpty()]
-    [string]  $HeartPath    
+    [string]  $HeartPath,
+
+    [Parameter(
+      Mandatory = $false,
+      ValueFromPipeline = $false,
+      ValueFromPipelineByPropertyName = $false
+    )]
+    [ValidateNotNullOrEmpty()]
+    [switch]  $Help,
+
+    [Parameter(
+      Mandatory = $false,
+      ValueFromPipeline = $false,
+      ValueFromPipelineByPropertyName = $false
+    )]
+    [ValidateNotNullOrEmpty()]
+    [switch]  $Version
   )
 
   BEGIN {
     # If using help or version options, just write and exit
     if ($Help.IsPresent) {
-      Write-Host $docString
+      Write-Host $helpWeighing
       continue
     }
 
@@ -67,7 +82,7 @@ function Invoke-Weighing {
       [xml]$xmlFeather = Get-Content $FeatherPath
       $maatFeather = [MaatResult]::new($xmlFeather)
 
-      $comparator = [MaatComparator]::new($maatHeart, $maatFeather)
+      $comparator = [MaatComparator]::new($maatFeather, $maatHeart)
       $comparator.CompareMaatResults()
       $comparator.GetComparisonFeedback()
     }
@@ -78,7 +93,7 @@ function Invoke-Weighing {
 
   END {    
     $endTime = Get-Date
-    Write-Host `n$bannerMin -f Yellow
+    Write-Host `n$bannerClose -f Yellow
     Write-Host "`nWeighing took $(Get-TimeDiff $startTime $endTime)"
   }
 }
