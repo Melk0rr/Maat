@@ -71,6 +71,7 @@ function Invoke-MaatWeighing {
     }
 
     Write-Host $banner`n -f Yellow
+    Write-Host $bannerScale`n -f Gray
     $startTime = Get-Date
   }
 

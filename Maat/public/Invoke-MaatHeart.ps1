@@ -111,6 +111,7 @@ function Invoke-MaatHeart {
     }
 
     Write-Host $banner`n -f Yellow
+    Write-Host $bannerHeart`n -f DarkRed
     $startTime = Get-Date
 
     if ($ConfigCheck.IsPresent -or $ACLCheck.IsPresent) {
