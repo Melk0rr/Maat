@@ -7,7 +7,7 @@ function Get-AccessFromACL {
       ValueFromPipelineByPropertyName = $false
     )]
     [ValidateNotNullOrEmpty()]
-    $Dir
+    [MaatDirectory] $Dir
   )
 
   Write-Host "Checking ACL on $($dir.GetName())..."
@@ -20,22 +20,21 @@ function Get-AccessFromACL {
       $accessPermissions = "R"
     }
 
-    if ($AccessRights -like "*Modify*") {
+    if ($aclAccess.FileSystemRights -like "*Modify*") {
       $accessPermissions = "RW"
     }
 
     $adACLGroups = Get-ADGroupFromACL -IdentityReference $aclAccess.IdentityReference
 
-    # Create access group instance + bind it to the directory
-    [MaatAccess]$maatAccessToDir = [MaatAccess]::new($dir, $accessPermissions, "acl")
-    $maatAccessGroup = $dir.GetResultRef().GetUniqueAccessGroup($adACLGroups[0].Name, $maatAccessToDir)
-    $dir.AddAccessGroup($maatAccessGroup)
+    if ($adACLGroups) {
+      # Create access group instance + bind it to the directory
+      [MaatAccess]$maatAccessToDir = [MaatAccess]::new($dir, $accessPermissions, "acl")
+      $maatAccessGroup = $dir.GetResultRef().GetUniqueAccessGroup($adACLGroups[0].Name, $maatAccessToDir)
+      $dir.AddAccessGroup($maatAccessGroup)
 
-    foreach ($adACLGr in $adACLGroups) {
-      $maatAccessGroup.SetAccessMembersFromADGroup($adACLGr)
+      foreach ($adACLGr in $adACLGroups) {
+        $maatAccessGroup.SetAccessMembersFromADGroup($adACLGr)
+      }
     }
   }
-
-  # Access feedback
-  $dir.GetAccessFeedback()
 }
