@@ -247,7 +247,7 @@ class MaatDirectory {
     $acl = Get-ACL -Path $this.GetPath()
     $nonBuiltIn = $acl.Access.Where({ ($_.IdentityReference -notlike "*NT*\SYST*") -and ($_.IdentityReference -notlike "BUILTIN\*") })
 
-    Write-Host "MaatDirectory::$($nonBuiltIn.count) ACL groups give access to '$($this.GetName())'"
+    Write-Host "$($nonBuiltIn.count) ACL groups give access to '$($this.GetName())'"
     return $nonBuiltIn
   }
 
@@ -467,20 +467,25 @@ class MaatAccessGroup {
   [void] SetAccessMembersFromADGroup([object]$adGroup) {
     foreach ($accessUsr in $adGroup.members) {
       # Formatting some basic informations about the group members
-      $memberADObject = Get-ADUser $accessUsr -Server (Split-DN $accessUsr).domain -Properties Description, EmailAddress, Modified, PasswordLastSet
-      $memberProperties = @{
-        m_distinguishedname = $accessUsr
-        m_san               = $memberADObject.samAccountName
-        m_name              = $memberADObject.name
-        m_domain            = (Split-DN $accessUsr).Domain
-        m_last_change       = $memberADObject.modified
-        m_last_pwdchange    = $memberADObject.passwordLastSet
-        m_description       = $memberADObject.description
+      try {
+        $memberADObject = Get-ADUser $accessUsr -Server (Split-DN $accessUsr).domain -Properties Description, EmailAddress, Modified, PasswordLastSet
+        $memberProperties = @{
+          m_distinguishedname = $accessUsr
+          m_san               = $memberADObject.samAccountName
+          m_name              = $memberADObject.name
+          m_domain            = (Split-DN $accessUsr).Domain
+          m_last_change       = $memberADObject.modified
+          m_last_pwdchange    = $memberADObject.passwordLastSet
+          m_description       = $memberADObject.description
+        }
+    
+        $newMember = $this.GetResultRef().GetUniqueAccessGroupMember($memberProperties)
+        $newMember.AddRelatedAccessGroup($this)
+        $this.AddMember($newMember)
       }
-  
-      $newMember = $this.GetResultRef().GetUniqueAccessGroupMember($memberProperties)
-      $newMember.AddRelatedAccessGroup($this)
-      $this.AddMember($newMember)
+      catch {
+        Write-Warning "MaatGroup:: $_"
+      }
     }
   }
 
@@ -547,7 +552,7 @@ class MaatAccessGroupMember {
   }
 
   [string[]] GetRelatedDirNames() {
-    return $this.memberAccessGroups | foreach-object { $_.GetDirNames() }
+    return ($this.memberAccessGroups | foreach-object { $_.GetDirNames() }) | select-object -unique
   }
 
   # Check if the current user has permissions on a given directory
