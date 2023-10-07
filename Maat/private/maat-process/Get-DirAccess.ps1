@@ -1,4 +1,4 @@
-function Get-AccessFromConfig {
+function Get-DirAccess {
   [CmdletBinding()]
   param(
     [Parameter(
@@ -7,12 +7,20 @@ function Get-AccessFromConfig {
       ValueFromPipelineByPropertyName = $false
     )]
     [ValidateNotNullOrEmpty()]
-    $Dir
+    $Dir,
+
+    [Parameter(
+      Mandatory = $false,
+      ValueFromPipeline = $false,
+      ValueFromPipelineByPropertyName = $false
+    )]
+    [ValidateNotNullOrEmpty()]
+    [switch]  $SkipACL
   )
 
   # Retreive every mention of the specified directory
   $dirAccessGroups = $dir.GetAccessGroups()
-  Write-Host "`n$($dirAccessGroups.count) groups give access to '$($dir.GetName())' :"
+  Write-Host "`n$($dirAccessGroups.count) group access to '$($dir.GetName())' specified in config"
 
   foreach ($maatAccessGroup in $dirAccessGroups) {
     Write-Host "$($maatAccessGroup.GetName()): $($maatAccessGroup.GetDirAccess($dir).GetPermissions())"
@@ -23,6 +31,11 @@ function Get-AccessFromConfig {
     foreach ($adAccessGroup in $accessGroupsInDomain) {
       $maatAccessGroup.SetAccessMembersFromADGroup($adAccessGroup)
     }
+  }
+
+  # Retreive dir access from acl and export it to a dedicated directory
+  if (!$SkipACL.IsPresent) {
+    Get-AccessFromACL $maatDir
   }
 
   # Access feedback
