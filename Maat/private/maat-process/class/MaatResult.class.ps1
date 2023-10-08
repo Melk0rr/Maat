@@ -247,7 +247,6 @@ class MaatDirectory {
     $acl = Get-ACL -Path $this.GetPath()
     $nonBuiltIn = $acl.Access.Where({ ($_.IdentityReference -notlike "*NT*\SYST*") -and ($_.IdentityReference -notlike "BUILTIN\*") })
 
-    Write-Host "$($nonBuiltIn.count) ACL groups give access to '$($this.GetName())'"
     return $nonBuiltIn
   }
 
@@ -349,10 +348,12 @@ class MaatAccessGroup {
   [string]$groupName
   [MaatAccess[]]$accesses = @()
   [MaatAccessGroupMember[]]$groupMembers = @()
-
+  [MaatAccessGroup[]]$parentGroups = @()
+  [MaatAccessGroup[]]$subGroups = @()
   # Constructors
   MaatAccessGroup([string]$name, [MaatAccess]$access) {
     $this.groupName = $name
+    $access.GetDirectory().AddAccessGroup($this)
     $this.accesses += $access
   }
 
@@ -435,6 +436,7 @@ class MaatAccessGroup {
       return
     }
 
+    $access.GetDirectory().AddAccessGroup($this)
     $this.accesses += $access
   }
 
@@ -465,7 +467,9 @@ class MaatAccessGroup {
 
   # Add members to current group based on an AD group members
   [void] SetAccessMembersFromADGroup([object]$adGroup) {
-    foreach ($accessUsr in $adGroup.members) {
+    $memberObjects = $adGroup.members | foreach-object { Get-ADObject $_ -Server (Split-DN $_) }
+    $userMembers = $memberObjects.Where({ $_.ObjectClass -eq "user" })
+    foreach ($accessUsr in $userMembers) {
       # Formatting some basic informations about the group members
       try {
         $memberADObject = Get-ADUser $accessUsr -Server (Split-DN $accessUsr).domain -Properties Description, EmailAddress, Modified, PasswordLastSet

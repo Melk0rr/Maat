@@ -21,6 +21,10 @@ function Get-ADGroupFromACL {
   # Check if IdentityReference can be found in the ad group list built from configuration
   $configADGroupCheck = $adGroups.Where({ ($_.Name -eq $IdentityReference) -or ($_.SID -eq $IdentityReference) })
 
+  if ($configADGroupCheck.count -gt 0) {
+    $IdentityReference = $configADGroupCheck[0].Name
+  }
+
   # Helper function to search ad domains for the identity reference
   # If the reference is an sid and a group is found in one of the domains, the function will be executed a second time
   # This is done because in some architectures, acl descend from a trusted domain
@@ -61,10 +65,6 @@ function Get-ADGroupFromACL {
       Write-Host "A group matching identity reference was not found in all domains. Looking a second time with new identity reference..."
       $resACLGroup += Get-ADGroupsMatchingIDRef
     }
-  }
-  
-  if ($configADGroupCheck.count -gt 0) {
-    $resACLGroup += $configADGroupCheck
   }
 
   return $resACLGroup
