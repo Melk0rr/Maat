@@ -2,13 +2,13 @@
 # MaatResult class : analyse accesses given to users over directories
 ##############################################################################
 class MaatResult {
-  [string]$resTitle = ""
-  [string]$resDate
-  [xml]$rawConfiguration
-  [MaatDirectory[]]$resDirectories = @()
-  [MaatAccessGroup[]]$uniqueAccessGroups = @()
-  [MaatAccessGroupMember[]]$uniqueAccessUsers = @()
-  [bool]$debugMode = $false
+  hidden [string]$resTitle = ""
+  hidden [string]$resDate
+  hidden [xml]$rawConfiguration
+  hidden [MaatDirectory[]]$resDirectories = @()
+  hidden [MaatAccessGroup[]]$uniqueAccessGroups = @()
+  hidden [MaatAccessGroupMember[]]$uniqueAccessUsers = @()
+  hidden [bool]$debugMode = $false
 
   # Constructors
   MaatResult([string]$title, [xml]$configuration) {
@@ -169,10 +169,10 @@ class MaatResult {
 # MaatDirectory class : directories accessed by users through groups
 ##############################################################################
 class MaatDirectory {
-  [string]$dirName
-  [string]$dirPath
-  [MaatAccessGroup[]]$dirAccessGroups = @()
-  [MaatResult]$resultRef
+  hidden [string]$dirName
+  hidden [string]$dirPath
+  hidden [MaatAccessGroup[]]$dirAccessGroups = @()
+  hidden [MaatResult]$resultRef
 
   # Constructors
   MaatDirectory([System.Xml.XmlElement]$dirXmlContent, [MaatResult]$result) {
@@ -287,9 +287,9 @@ class MaatDirectory {
 # MaatAccess class : access over a directory with R or RW permissions
 ##############################################################################
 class MaatAccess {
-  [MaatDirectory] $targetDirectory
-  [string]$permissions
-  [string]$type = "config"
+  hidden [MaatDirectory] $targetDirectory
+  hidden [string]$permissions
+  hidden [string]$type = "config"
 
   # Constructors
   MaatAccess([MaatDirectory]$dir, [string]$perm, [string]$type) {
@@ -345,11 +345,11 @@ class MaatAccess {
 # MaatAccessGroup class : groups giving access to users over a directory
 ##############################################################################
 class MaatAccessGroup {
-  [string]$groupName
-  [MaatAccess[]]$accesses = @()
-  [MaatAccessGroupMember[]]$groupMembers = @()
-  [MaatAccessGroup[]]$parentGroups = @()
-  [MaatAccessGroup[]]$subGroups = @()
+  hidden [string]$groupName
+  hidden [MaatAccess[]]$accesses = @()
+  hidden [MaatAccessGroupMember[]]$groupMembers = @()
+  hidden [MaatAccessGroup[]]$parentGroups = @()
+  hidden [MaatAccessGroup[]]$subGroups = @()
   # Constructors
   MaatAccessGroup([string]$name, [MaatAccess]$access) {
     $this.groupName = $name
@@ -440,6 +440,27 @@ class MaatAccessGroup {
     $this.accesses += $access
   }
 
+  [void] AddSubGroup([MaatAccessGroup]$subGroup, [bool]$withInheritance = $true) {
+    $subGroupCheck = $this.subGroups.Where({ $_.GetName() -eq $subGroup.GetName() })
+    if ($subGroupCheck) {
+      Write-Host "MaatAccessGroup::$($subGroup.GetName()) is already a sub group of $($this.GetName())"
+      return
+    }
+
+    $this.subGroups += $subGroup
+    if ($withInheritance) {
+      $this.accesses | foreach-object {
+        $subGroup.AddAccess($_)
+      }
+    }
+    $subGroup.AddParentGroup($this)
+  }
+
+  # Adds a group to the list of parent groups
+  [void] AddParentGroup([MaatAccessGroup]$parentGroup) {
+    $this.parentGroups += $parentGroup
+  }
+
   # Method to create MaatAccessGroupMember intances based from xml content
   [void] PopulateMembers([System.Xml.XmlElement]$xmlContent) {
     foreach ($accessGroupMemberXml in $xmlContent.SelectNodes("*/member")) {
@@ -516,14 +537,14 @@ class MaatAccessGroup {
 # MaatAccessGroupMember class : users accessing directories via groups
 ##############################################################################
 class MaatAccessGroupMember {
-  [string]$memberDN
-  [string]$memberSAN
-  [string]$memberName
-  [string]$memberDomain
-  [string]$memberLastChange
-  [string]$memberLastPwdChange
-  [string]$memberDescription
-  [MaatAccessGroup[]]$memberAccessGroups = @()
+  hidden [string]$memberDN
+  hidden [string]$memberSAN
+  hidden [string]$memberName
+  hidden [string]$memberDomain
+  hidden [string]$memberLastChange
+  hidden [string]$memberLastPwdChange
+  hidden [string]$memberDescription
+  hidden [MaatAccessGroup[]]$memberAccessGroups = @()
 
   # Constructors
   MaatAccessGroupMember([object]$memberObject) {
@@ -626,10 +647,10 @@ class MaatAccessGroupMember {
 # MaatChange class : Describes a change in MaatResults
 ##############################################################################
 class MaatChange {
-  [string]$changeDescription
-  [string]$type
-  [string]$oldValue
-  [string]$newValue
+  hidden [string]$changeDescription
+  hidden [string]$type
+  hidden [string]$oldValue
+  hidden [string]$newValue
 
   #Constructors
   MaatChange([string]$description, [string]$type) {
@@ -696,9 +717,9 @@ class MaatChange {
 # MaatComparator class : list changes between MaatResults to compare them
 ##############################################################################
 class MaatComparator {
-  [MaatChange[]]$changeList = @()
-  [MaatResult]$resultA
-  [MaatResult]$resultB
+  hidden [MaatChange[]]$changeList = @()
+  hidden [MaatResult]$resultA
+  hidden [MaatResult]$resultB
 
   # Constructors
   MaatComparator([MaatResult]$resA) {
