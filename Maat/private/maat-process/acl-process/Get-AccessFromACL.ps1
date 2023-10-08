@@ -28,15 +28,14 @@ function Get-AccessFromACL {
     }
 
     Write-Host "$($aclAccess.IdentityReference): $accessPermissions"
-    $adACLGroups = Get-ADGroupFromACL -IdentityReference $aclAccess.IdentityReference
+    $adGroupsMatchingRef = Get-ADGroupFromACL -IdentityReference $aclAccess.IdentityReference
 
-    if ($adACLGroups) {
+    if ($adGroupsMatchingRef) {
       # Create access group instance + bind it to the directory
       [MaatAccess]$maatAccessToDir = [MaatAccess]::new($dir, $accessPermissions, "acl")
-      $maatAccessGroup = $dir.GetResultRef().GetUniqueAccessGroup($adACLGroups[0].Name, $maatAccessToDir)
-
-      foreach ($adACLGr in $adACLGroups) {
-        $maatAccessGroup.SetAccessMembersFromADGroup($adACLGr)
+     
+      foreach ($matchingGr in $adGroupsMatchingRef) {
+        Resolve-GroupTree -ADGroup $matchingGr -Access $maatAccessToDir
       }
     }
   }

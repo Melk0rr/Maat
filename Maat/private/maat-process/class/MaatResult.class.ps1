@@ -488,9 +488,7 @@ class MaatAccessGroup {
 
   # Add members to current group based on an AD group members
   [void] SetAccessMembersFromADGroup([object]$adGroup) {
-    $memberObjects = $adGroup.members | foreach-object { Get-ADObject $_ -Server (Split-DN $_) }
-    $userMembers = $memberObjects.Where({ $_.ObjectClass -eq "user" })
-    foreach ($accessUsr in $userMembers) {
+    foreach ($accessUsr in $adGroup.members) {
       # Formatting some basic informations about the group members
       try {
         $memberADObject = Get-ADUser $accessUsr -Server (Split-DN $accessUsr).domain -Properties Description, EmailAddress, Modified, PasswordLastSet
