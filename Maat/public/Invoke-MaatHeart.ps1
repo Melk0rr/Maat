@@ -108,13 +108,14 @@ function Invoke-MaatHeart {
 
     # Retreive List of group names from access configuration + get groups from AD
     [xml]$accessConfiguration = Get-Content $XMLConfigPath
-    $accessGroupNames = $accessConfiguration.SelectNodes("//g_name").innerText | select-object -unique
-
-    if ($accessGroupNames.count -gt 0) {
-      $adGroups = Get-AccessADGroups -GroupList $accessGroupNames -ServerList $Server
-    }
 
     $maatHeartResult = [MaatResult]::new("maat_config_res", $accessConfiguration)
+    if ($Server) {
+      $adConnector = [MaatADConnector]::new($Server)
+      $maatHeartResult.SetADConnector($adConnector)
+
+      $maatHeartResult.GetADGroupsFromConfig()
+    }
 
     if ($DebugMode.IsPresent) {
       $maatResultFromCurrentRun.SetDebugMode($true)
@@ -130,9 +131,10 @@ function Invoke-MaatHeart {
         $maatDir = [MaatDirectory]::new($dir, $maatHeartResult)
 
         # Retreive dir access from configuration and export it to a dedicated directory
-        Get-DirAccess -Dir $maatDir -SkipACL:($SkipACL.IsPresent)
+        $maatDir.GetDirAccess($SkipACL.IsPresent)
 
         $maatHeartResult.AddDir($maatDir)
+        $maatDir.GetAccessFeedback()
       }
 
       catch {
