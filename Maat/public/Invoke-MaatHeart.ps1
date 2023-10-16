@@ -111,7 +111,7 @@ function Invoke-MaatHeart {
 
     $maatHeartResult = [MaatResult]::new("maat_config_res", $accessConfiguration)
     if ($Server) {
-      $adConnector = [MaatADConnector]::new($Server)
+      $adConnector = [MaatADConnector]::new($Server, $maatHeartResult)
       $maatHeartResult.SetADConnector($adConnector)
 
       $maatHeartResult.GetADGroupsFromConfig()
