@@ -237,20 +237,6 @@ class MaatADConnector {
     return $search
   }
 
-  # Filter list of groups to remove duplicates
-  [object[]] GetUniqueGroups([object[]]$rawGroupList) {
-    [object[]]$uniqueList = @()
-    
-    foreach ($gr in $rawGroupList) {
-      $check = $uniqueList.Where({ $_.DistinguishedName -eq $gr.DistinguishedName })
-      if ($check.count -eq 0) {
-        $uniqueList += $gr
-      }
-    }
-
-    return $uniqueList
-  }
-
   # Search the provided groups in the current servers
   [object[]] GetADGRoups([string[]]$groupRefs, [string[]]$servers = $this.servers) {
     $this.maat.HandleLogs("`nLooking for $($groupRefs -join ', ') in $($this.servers.count) domain(s)...", "White")
