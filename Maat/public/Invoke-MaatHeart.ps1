@@ -79,6 +79,14 @@ function Invoke-MaatHeart {
       ValueFromPipelineByPropertyName = $false
     )]
     [ValidateNotNullOrEmpty()]
+    [string]  $ReportTitle = "my_report",
+
+    [Parameter(
+      Mandatory = $false,
+      ValueFromPipeline = $false,
+      ValueFromPipelineByPropertyName = $false
+    )]
+    [ValidateNotNullOrEmpty()]
     [switch]  $Version
   )
 
@@ -109,7 +117,7 @@ function Invoke-MaatHeart {
     # Retreive List of group names from access configuration + get groups from AD
     [xml]$accessConfiguration = Get-Content $XMLConfigPath
 
-    $maatHeartResult = [MaatResult]::new("maat_config_res", $accessConfiguration)
+    $maatHeartResult = [MaatResult]::new($ReportTitle, $accessConfiguration)
     if ($Server) {
       $adConnector = [MaatADConnector]::new($Server, $maatHeartResult)
       $maatHeartResult.SetADConnector($adConnector)
@@ -118,7 +126,7 @@ function Invoke-MaatHeart {
     }
 
     if ($DebugMode.IsPresent) {
-      $maatResultFromCurrentRun.SetDebugMode($true)
+      $maatHeartResult.SetDebugMode($true)
     }
       
     $accessDirs = $accessConfiguration.SelectNodes("//dir")
