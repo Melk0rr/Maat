@@ -90,7 +90,7 @@ class MaatResult {
   # Handles log based on debug mode
   [void] HandleLogs([string]$msg, [string]$color = "White") {
     if ($this.debugMode) {
-      Write-Host -f $color $msg
+      Write-Host -f $color "* MaatDebugLog::$msg *"
     }
   }
 
@@ -161,12 +161,13 @@ class MaatResult {
     $xmlResults.PreserveWhiteSpace = $true
     $xmlResults.innerXML = $this.ToXml()
 
-    $resultOutPath = "$path\$($this.resTitle)"
+    $resolved = (Resolve-Path $path).path
+    $resultOutPath = "$($resolved.Trim('\'))\$($this.resTitle)"
     if (!$override) {
       $resultOutPath += ("$($this.resDate)" -split " ")[0].Replace('-', '')
     }
 
-    $xmlResults.Save("$resultOutPath.xml")
+    $xmlResults.Save("$resultOutPath.maatreport.xml")
   }
 
   # Method to convert current instance into xml string
@@ -261,11 +262,14 @@ class MaatADConnector {
 
         if ($searchDuplicates.count -eq 0) {
           try {
-            [object]$adGroup = Get-ADGroup $gr -Server $srv -Properties Description, Members
-            $this.SaveADGroup($adGroup)
-            $findings += $adGroup
+            [object]$adGroup = Get-ADGroup -Filter { (Name -eq $gr) -or (SID -eq $gr) } -Server $srv -Properties Description, Members
+            
+            if ($adGroup) {
+              $this.SaveADGroup($adGroup)
+              $findings += $adGroup
 
-            $this.maat.HandleLogs("Found $gr in $srv : $($adGroup.name) !", "Green")
+              $this.maat.HandleLogs("Found $gr in $srv : $($adGroup.name) !", "Green")
+            }
           }
           catch {
             $this.maat.HandleLogs("MaatADConnector::$gr not found in $srv", "Red")
@@ -279,7 +283,7 @@ class MaatADConnector {
     }
 
     if ($findings.count -gt 0) {
-      $this.maat.HandleLogs("Found $($findings.count) group(s) out of $($groupRefs.count)`n", "Green")
+      $this.maat.HandleLogs("Found $($findings.count) group(s) out of $($groupRefs.count)", "Green")
     }
     
     return $findings
@@ -305,12 +309,22 @@ class MaatADConnector {
 
     $resACLGroup = $this.GetADGRoups($identityReference, $this.servers)
     
+    # If the identity reference is an SID and was found in one of the domains
+    # Check a second time using the name of the group found
     if ($identityReference -match $sidRegex) {
       $resCount = $resACLGroup.count
       if (($resCount -gt 0) -and ($resCount -ne $this.servers.count)) {
-        Write-Host "Found only $resCount group(s) in $resCount domains. Looking a second time with new identity reference..."
+        Write-Host "`nFound only $resCount group(s) matching $identityReference in $resCount domains. Looking a second time with new identity reference..."
         $identityReference = $resACLGroup[0].Name
         $resACLGroup = $this.GetADGRoups($identityReference, $this.servers)
+
+        if ($resACLGroup.count -gt $resCount) {
+          Write-Host -f Green "Found $($resACLGroup.count - $resCount) more group(s) matching $identityReference"
+
+        }
+        else {
+          Write-Host -f Green "Did not find more group matching $identityReference"
+        }
       }
     }
 
@@ -323,7 +337,8 @@ class MaatADConnector {
     $maatAccessGroup = $this.maat.GetUniqueAccessGroup($adGroup.Name, $access)
     $currentGroupName = $maatAccessGroup.GetName()
 
-    $this.maat.HandleLogs("`nResolving $currentGroupName group tree...", "White")
+    $parentLog = $parentGroup ? " $($parentGroup.GetName()) subgroup" : ""
+    $this.maat.HandleLogs("`nResolving$parentLog $currentGroupName group tree...", "White")
 
     if ($parentGroup) {
       $parentGroup.AddSubGroup($maatAccessGroup, $true)
@@ -331,42 +346,49 @@ class MaatADConnector {
 
     $currentSrv = (Split-DN $adGroup.DistinguishedName).Domain
     $objectMembers = $adGroup.members | foreach-object { Get-ADObject $_ -Server $currentSrv }
-    [object[]]$userMembers = $objectMembers.Where({ $_.ObjectClass -eq "user" })
     [object[]]$groupAndForeignPrincipals = $objectMembers.Where({ $_.ObjectClass -in "group", "foreignSecurityPrincipal" })
+    [object[]]$userMembers = $objectMembers.Where({ $_.ObjectClass -eq "user" })
 
-    # Set user members
-    if ($userMembers.count -gt 0) {
-      Write-Host -f Green "Found $($userMembers.count) users in $currentGroupName ($currentSrv). Populating..."
-      $adGroup | add-member -MemberType NoteProperty -Name "members" -Value $userMembers -Force
-      $maatAccessGroup.SetAccessMembersFromADGroup($adGroup)
+    # Check if members of the current maat access group were already set for the current dommain
+    $checkPopulated = $maatAccessGroup.HasMemberOnDomain($currentSrv)
+    if (!$checkPopulated) {
+      # Set user members
+      if ($userMembers.count -gt 0) {
+        Write-Host -f Green "Found $($userMembers.count) users in $currentGroupName ($currentSrv). Populating..."
+        $adGroup | add-member -MemberType NoteProperty -Name "members" -Value $userMembers -Force
+        $maatAccessGroup.SetAccessMembersFromADGroup($adGroup)
+      }
     }
 
     foreach ($gr in $groupAndForeignPrincipals) {
       $this.maat.HandleLogs("`nRecursively looking into sub group $($gr.Name) from $currentSrv", "White")
 
+      # Classic sub group recursivity
       if ($gr.ObjectClass -eq "group") {
-        $subADGroup = Get-ADGroup $gr.Name -Server $currentSrv -Properties Description, Members
+        $subADGroup = Get-ADGroup -Filter { Name -eq $gr.Name } -Server $currentSrv -Properties Description, Members
         $this.ResolveADGroupTree($subADGroup, $access, $maatAccessGroup)
 
       }
+      # Foreign group : checking recursively into group found in foreign domain
       else {
         $foreignDomains = $this.servers.Where({ $_ -ne $currentSrv })
         $this.maat.HandleLogs("$($gr.Name) is a foreign group. Checking $($foreignDomains -join ', ')...", "White")
         foreach ($d in $foreignDomains) {
           try {
-            $subForeignADGroup = Get-ADGroup $gr.Name -Server $d -Properties Description, Members
+            $subForeignADGroup = Get-ADGroup -Filter { (Name -eq $gr.Name) -or (SID -eq $gr.Name) } -Server $d -Properties Description, Members
 
             if ($subForeignADGroup) {
               $this.maat.HandleLogs("Found foreign group in $d : $($subForeignADGroup.name)", "Green")
 
-            } else {
+            }
+            else {
               $this.maat.HandleLogs("Could not find $($gr.Name) in $d", "Red")
             }
 
             $this.ResolveADGroupTree($subForeignADGroup, $access, $maatAccessGroup)
           }
           catch {
-            $this.maat.HandleLogs("MaatResolveTree::Error while retreiving foreign principal $($gr.Name): $_", "White")
+            $this.maat.HandleLogs("MaatResolveTree::Error while retreiving foreign principal $($gr.Name): $_", "Red")
           }
         }
       }
@@ -468,7 +490,7 @@ class MaatDirectory {
     Write-Host "`nChecking ACL on $($this.dirName)..."
 
     $aclAccesses = $this.GetNonBuiltInACLAccesses()
-    Write-Host -f Blue "> $($aclAccesses.count) ACL groups give access to '$($this.dirName)'"
+    Write-Host "> $($aclAccesses.count) ACL references found on '$($this.dirName)'"
 
     $accessIndex = 0
     # 1 acl access = 1 identity reference
@@ -481,7 +503,7 @@ class MaatDirectory {
       
       $adConnector = $this.GetADConnector()
       $adGroupsMatchingRef = $adConnector.TranslateACLIDentityToGroups($aclAccess.IdentityReference)
-      Write-Host -f Blue "$($accessIndex + 1)) $($adGroupsMatchingRef[0].Name): $accessPermissions"
+      Write-Host "`n$($accessIndex + 1)) $($adGroupsMatchingRef[0].Name): $accessPermissions"
 
       if ($adGroupsMatchingRef) {
         # Create access group instance + bind it to the directory
@@ -521,17 +543,25 @@ class MaatDirectory {
 
   # Give feedback on the current dir accesses
   [void] GetAccessFeedback() {
-    $accessGroups = $this.GetAccessGroups()
-    $accessUsers = $this.GetAccessUsers()
     Write-Host "`n######## $($this.dirName) - Feedback ########"
+
+    # Feedback on groups
+    $accessGroups = $this.GetAccessGroups()
     Write-Host "$($accessGroups.count) group(s) have access to $($this.dirName) :"
-    
 
-    Write-Host "$($accessUsers.count) user(s) have access to $($this.dirName) :"
+    foreach ($gr in $accessGroups) {
+      $groupAccess = $gr.GetDirAccess($this).GetPermissions()
+      Write-Host "$($gr.GetName()): $groupAccess"
+    }
 
-    foreach ($usr in $accessUsers) {
+    # Feedback on users
+    $accessUsers = $this.GetAccessUsers()
+    $enabledUsers = $accessUsers.Where({ $_.GetStatus() })
+    Write-Host "`n$($enabledUsers.count) user(s) have access to $($this.dirName) ($($accessUsers.count - $enabledUsers.count) disabled) :"
+
+    foreach ($usr in $enabledUsers) {
       $usrAccessOverDirByPermissions = $usr.GetDirAccessGroupsByPerm($this)
-      $usrPermissions = $usr.GetDirPermissions($this)
+      $usrPermissions = ($usrAccessOverDirByPermissions.RW.count -gt 0) ? "RW" : "R"
       $usrAccessHighestGroups = $usrAccessOverDirByPermissions[$usrPermissions] | foreach-object { $_.GetName() }
 
       Write-Host "$($usr.GetSAN()): $usrPermissions ($($usrAccessHighestGroups -join ', '))"
@@ -540,9 +570,8 @@ class MaatDirectory {
 
   # Method to convert current instance into xml string
   [string] ToXml() {
-    $dirAccessGroupsXml = foreach ($accessGroup in $this.dirAccessGroups) {
-      $accessGroup.ToXml($this)
-    }
+    $dirAccessGroupsXml = $this.GetAccessGroups() | foreach-object { $_.ToXml($this) }
+    $dirAccessUsersXml = $this.GetAccessUsers() | foreach-object { $_.ToXml($this) }
 
     return @"
     <dir>
@@ -551,6 +580,10 @@ class MaatDirectory {
       <dir_access_groups>
       $dirAccessGroupsXml
       </dir_access_groups>
+
+      <dir_access_users>
+      $dirAccessUsersXml
+      </dir_access_users>
     </dir>
   
 "@
@@ -660,6 +693,16 @@ class MaatAccessGroup {
     return $this.groupMembers | foreach-object { $_.GetDN() }
   }
 
+  # Get members related to a given domain
+  [MaatAccessGroupMember[]] GetDomainMembers([string]$domain) {
+    return $this.GetMembers().Where({ $_.GetDomain() -eq $domain })
+  }
+
+  # Chech if current group has members on a given domain
+  [bool] HasMemberOnDomain([string]$domain) {
+    return ($this.GetDomainMembers($domain).count -gt 0)
+  }
+
   # Return the names of related directories
   [string[]] GetDirNames() {
     return $this.GetDirectoryList() | foreach-object { $_.GetName() }
@@ -753,7 +796,7 @@ class MaatAccessGroup {
   # Method to add a group member
   [void] AddMember([MaatAccessGroupMember]$newMember) {
     if ($newMember.GetDN() -in $this.GetMembersDN()) {
-      $this.GetResultRef().HandleLogs("Member $($newMember.GetSAN()) is already a member of $($this.groupName)", "White")
+      $this.GetResultRef().HandleLogs("MaatAccessGroup::$($newMember.GetSAN()) is already a member of $($this.groupName)", "White")
       return
     }
 
@@ -765,14 +808,13 @@ class MaatAccessGroup {
     foreach ($accessUsr in $adGroup.members) {
       # Formatting some basic informations about the group members
       try {
-        $memberADObject = Get-ADUser $accessUsr -Server (Split-DN $accessUsr).domain -Properties Description, EmailAddress, Modified, PasswordLastSet
+        $memberADObject = Get-ADUser $accessUsr -Server (Split-DN $accessUsr).domain -Properties Description, EmailAddress
         $memberProperties = @{
           m_distinguishedname = $accessUsr
           m_san               = $memberADObject.samAccountName
           m_name              = $memberADObject.name
-          m_domain            = (Split-DN $accessUsr).Domain
-          m_last_change       = $memberADObject.modified
-          m_last_pwdchange    = $memberADObject.passwordLastSet
+          m_domain            = (Split-DN $accessUsr).domain
+          m_enabled           = $memberADObject.enabled ?? $true
           m_description       = $memberADObject.description
         }
     
@@ -788,17 +830,10 @@ class MaatAccessGroup {
 
   # Method to convert current instance into xml string
   [string] ToXml([MaatDirectory]$dir) {
-    $groupMemberXml = foreach ($member in $this.groupMembers) {
-      $member.ToXml()
-    }
-
     return @"
       <group>
         <g_name>$($this.groupName)</g_name>
         <g_permissions>$($this.GetDirAccess($dir).GetPermissions())</g_permissions>
-        <g_members>
-        $groupMemberXml
-        </g_members>
       </group>
 "@
   }
@@ -813,9 +848,8 @@ class MaatAccessGroupMember {
   hidden [string]$memberSAN
   hidden [string]$memberName
   hidden [string]$memberDomain
-  hidden [string]$memberLastChange
-  hidden [string]$memberLastPwdChange
   hidden [string]$memberDescription
+  hidden [bool]$memberStatus
   hidden [MaatAccessGroup[]]$memberAccessGroups = @()
 
   # Constructors
@@ -824,8 +858,7 @@ class MaatAccessGroupMember {
     $this.memberSAN = $memberObject.m_san
     $this.memberName = $memberObject.m_name
     $this.memberDomain = $memberObject.m_domain
-    $this.memberLastChange = $memberObject.m_last_change
-    $this.memberLastPwdChange = $memberObject.m_last_pwdchange
+    $this.memberStatus = $memberObject.m_enabled
     $this.memberDescription = $memberObject.m_description
   }
 
@@ -837,6 +870,16 @@ class MaatAccessGroupMember {
   # Getter method to return member SAN
   [string] GetSAN() {
     return $this.memberSAN
+  }
+
+  # Getter for member domain
+  [string] GetDomain() {
+    return $this.memberDomain
+  }
+
+  # Getter method to return member status
+  [bool] GetStatus() {
+    return $this.memberStatus
   }
 
   # Method to retreive group name
@@ -891,6 +934,14 @@ class MaatAccessGroupMember {
     return ($userDirAccessGroupsByPerm.RW.count -gt 0) ? "RW" : "R"
   }
 
+  # Returns 
+  [string[]] GetDirAccessGroupNames([MaatDirectory]$dir) {
+    $usrAccessOverDirByPermissions = $this.GetDirAccessGroupsByPerm($dir)
+    $usrPermissions = ($usrAccessOverDirByPermissions.RW.count -gt 0) ? "RW" : "R"
+
+    return $usrAccessOverDirByPermissions[$usrPermissions] | foreach-object { $_.GetName() }
+  }
+
   # Adds a group to the list of groups the current user is a member of
   [void] AddRelatedAccessGroup([MaatAccessGroup]$newAccessGroup) {
     if ($newAccessGroup.GetName() -notin $this.GetGroupNames()) {
@@ -899,16 +950,22 @@ class MaatAccessGroupMember {
   }
 
   # Method to convert current instance into xml string
-  [string] ToXml() {
+  [string] ToXml([MaatDirectory]$dir) {
     $memberDesc = $this.memberDescription ? ($this.memberDescription).Replace("&", "&amp;") : ""
+    $dirAccessGroupsSimpleXml = $this.GetDirAccessGroupNames($dir) | foreach-object {
+      @"
+            <g_name>$_</g_name>
+"@
+    }
+
     return @"
         <member>
           <m_distinguishedname>$($this.memberDN)</m_distinguishedname>
           <m_san>$($this.memberSAN)</m_san>
           <m_name>$($this.memberName)</m_name>
           <m_domain>$($this.memberDomain)</m_domain>
-          <m_last_change>$($this.memberLastChange)</m_last_change>
-          <m_last_pwdchange>$($this.memberLastPwdChange)</m_last_pwdchange>
+          <m_status>$($this.memberStatus ? "Enabled" : "Disabled")</m_status>
+          <m_access_group>$($dirAccessGroupsSimpleXml)</m_access_group>
           <m_description>$memberDesc</m_description>
         </member>
 "@
@@ -1123,8 +1180,8 @@ class MaatComparator {
           # Else user is present in new res but not in the old
           else {
             $newUserChange = [MaatChange]::new("$($usrInResB.GetSAN()) gain access permission over $($dir.GetName())", "user")
+            $newUserAccessGroups = $usrInResB.GetDirAccessGroupNames($dirInResB)
             $newUserPerm = $usrInResB.GetDirPermissions($dirInResB)
-            $newUserAccessGroups = $usrInResB.GetDirAccessGroupsByPerm($dirInResB)[$newUserPerm] | foreach-object { $_.GetName() }
             $newUserChange.SetNewValue("$newUserPerm ($newUserAccessGroups)")
 
             $this.changeList += $newUserChange
