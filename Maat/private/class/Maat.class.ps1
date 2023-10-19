@@ -27,16 +27,6 @@ class MaatResult {
     }
   }
 
-  # Getter method to return res title
-  [string] GetTitle() {
-    return $this.resTitle
-  }
-
-  # Getter method to return result date
-  [string] GetDate() {
-    return $this.resDate
-  }
-
   # Getter method for the debug mode
   [bool] GetDebugMode() {
     return $this.debugMode
@@ -102,7 +92,7 @@ class MaatResult {
 
     $accessGroupNames = $this.rawConfiguration.SelectNodes("//g_name").innerText | select-object -unique
     if ($accessGroupNames.count -gt 0) {
-      $configGroups = $this.adConnector.GetADGRoups($accessGroupNames, $this.adConnector.GetServers())
+      $configGroups = $this.adConnector.GetADGroups($accessGroupNames, $this.adConnector.GetServers())
       Write-Host "Found $($configGroups.count) AD groups based on config"
     }
   }
@@ -152,7 +142,7 @@ class MaatResult {
 
   # Method to return a string describing current instance
   [string] ToString() {
-    $resString = "$($this.GetTitle())($($this.GetDate()))"
+    $resString = "$($this.resTitle)($($this.resDate))"
     return $resString
   }
 
@@ -238,7 +228,7 @@ class MaatADConnector {
   }
 
   # Search the provided groups in the current servers
-  [object[]] GetADGRoups([string[]]$groupRefs, [string[]]$servers = $this.servers) {
+  [object[]] GetADGroups([string[]]$groupRefs, [string[]]$servers = $this.servers) {
     $this.maat.HandleLogs("`nLooking for $($groupRefs -join ', ') in $($this.servers.count) domain(s)...", "White")
 
     [object[]]$findings = @()
@@ -273,48 +263,6 @@ class MaatADConnector {
     }
     
     return $findings
-  }
-
-  # Method to translate an acl identity reference into a group name
-  [object[]] TranslateACLIDentityToGroups([string]$identityReference) {
-
-    [object[]]$resACLGroup = @()
-
-    # If the reference is not an sid : removes the domain reference if any
-    $sidRegex = "^S-1-[0-59]-\d{2}-\d{8,10}-\d{8,10}-\d{8,10}-[1-9]\d{3,9}"
-    if ($identityReference -notmatch $sidRegex) {
-      $identityReference = $identityReference.Split("\")[1]
-    }
-
-    # Check if identity reference can be found in the ad group list built from configuration
-    $resACLGroup = $this.SearchGroupListForIdentity($identityReference, $this.servers)
-
-    if ($resACLGroup.count -gt 0) {
-      $identityReference = $resACLGroup[0].Name
-    }
-
-    $resACLGroup = $this.GetADGRoups($identityReference, $this.servers)
-    
-    # If the identity reference is an SID and was found in one of the domains
-    # Check a second time using the name of the group found
-    if ($identityReference -match $sidRegex) {
-      $resCount = $resACLGroup.count
-      if (($resCount -gt 0) -and ($resCount -ne $this.servers.count)) {
-        Write-Host "`nFound only $resCount group(s) matching $identityReference in $resCount domains. Looking a second time with new identity reference..."
-        $identityReference = $resACLGroup[0].Name
-        $resACLGroup = $this.GetADGRoups($identityReference, $this.servers)
-
-        if ($resACLGroup.count -gt $resCount) {
-          Write-Host -f Green "Found $($resACLGroup.count - $resCount) more group(s) matching $identityReference"
-
-        }
-        else {
-          Write-Host -f Green "Did not find more group matching $identityReference"
-        }
-      }
-    }
-
-    return $resACLGroup
   }
 
   # Method to explore group members and populate maat access groups aswell as their members
@@ -383,6 +331,164 @@ class MaatADConnector {
 }
 
 ##############################################################################
+# MaatACLAccess class : acl access and permissions translation
+##############################################################################
+class MaatACLAccess {
+
+  [object]$rightsTranslator = @{
+    "Read|Write|Modify|FullControl" = "R"
+    "Write|Modify|FullControl"      = "W"
+    "Execute|FullControl"           = "X"
+  }
+  [string]$sidRegex = "^S-1-[0-59]-\d{2}-\d{8,10}-\d{8,10}-\d{8,10}-[1-9]\d{3,9}"
+
+  hidden [MaatACLConnector]$aclConnector
+  hidden [string]$identityReference
+  hidden [string]$permissions
+  hidden [bool]$inherited
+
+  MaatACLAccess([object]$accessObject, [MaatACLConnector]$connector) {
+    $this.aclConnector = $connector
+    $this.identityReference = $accessObject.IdentityReference
+
+    # If the reference is not an sid : removes the domain reference if any
+    if (($this.identityReference -notmatch $this.sidRegex) -and (j$this.identityReference -match "\\")) {
+      $this.identityReference = $this.identityReference.Split("\")[1]
+    }
+
+    $this.inherited = $accessObject.IsInherited
+
+    # Translate MS file system rights to simple RWX short string
+    $this.permissions = ""
+    $this.rightsTranslator.keys | foreach-object {
+      if ($accessObject.FileSystemRights -match $_) {
+        $this.permissions += $this.rightsTranslator[$_]
+      }
+    }
+  }
+
+  # Getter for identity reference
+  [string] GetIdentityReference() {
+    return $this.identityReference
+  }
+
+  # Getter for acl access permissions
+  [string] GetPermissions() {
+    return $this.permissions
+  }
+
+  # Returns the related ad connector
+  [MaatADConnector] GetADConnector() {
+    return $this.aclConnector.GetMaatDirectory().GetADConnector()
+  }
+
+  # Method to translate the current acl access into ad groups
+  [object[]] TranslateToADGroups() {
+    [object[]]$resACLGroup = @()
+    [string[]]$servers = $this.GetADConnector().GetServers()
+
+    # Check if identity reference can be found in the ad group list built from configuration
+    $resACLGroup = $this.GetADConnector().SearchGroupListForIdentity($this.identityReference, $servers)
+
+    if ($resACLGroup.count -gt 0) {
+      $this.identityReference = $resACLGroup[0].Name
+    }
+
+    $resACLGroup = $this.GetADConnector().GetADGroups($this.identityReference, $servers)
+    
+    # If the identity reference is an SID and was found in one of the domains
+    # Check a second time using the name of the group found
+    if ($this.identityReference -match $this.sidRegex) {
+      $resCount = $resACLGroup.count
+      if (($resCount -gt 0) -and ($resCount -ne $servers.count)) {
+        Write-Host "`nFound only $resCount group(s) matching $($this.identityReference) in $resCount domains. Looking a second time with new identity reference..."
+        $this.identityReference = $resACLGroup[0].Name
+        $resACLGroup = $this.GetADConnector().GetADGroups($this.identityReference, $servers)
+
+        if ($resACLGroup.count -gt $resCount) {
+          Write-Host -f Green "Found $($resACLGroup.count - $resCount) more group(s) matching $($this.identityReference)"
+
+        }
+        else {
+          Write-Host -f Green "Did not find more group matching $($this.identityReference)"
+        }
+      }
+    }
+
+    return $resACLGroup
+  }
+}
+
+##############################################################################
+# MaatACLConnector class : providing methods related to directory acl
+##############################################################################
+class MaatACLConnector {
+  
+  hidden [MaatDirectory]$maatDir
+  hidden [object]$acl
+  hidden [object]$accesses
+  hidden [string]$owner
+
+  MaatACLConnector([MaatDirectory]$dir) {
+    $this.maatDir = $dir
+    $this.acl = Get-ACL -Path $dir.GetPath()
+
+    $this.owner = $this.acl.Owner
+    $accessInstances = $this.acl.Access | foreach-object { [MaatACLAccess]::new($_, $this) }
+    $builtInStrings = @("\\SYST", "BUILTIN\\")
+    $this.accesses = @{
+      BuiltIn    = $accessInstances.Where({ $_.GetIdentityReference() -match ($builtInStrings -join '|') })
+      NonBuiltIn = $accessInstances.Where({ $_.GetIdentityReference() -notmatch ($builtInStrings -join '|') })
+    }
+
+    Write-Host "$($this.accesses.NonBuiltIn.count) ACL references found on $($this.maatDir.GetName())"
+  }
+
+  # Getter for maat directory instance
+  [MaatDirectory] GetMaatDirectory() {
+    return $this.maatDir
+  }
+
+  # Getter for built in accesses (NT\System, BUILTIN\Admins, etc)
+  [object[]] GetBuiltInAccesses() {
+    return $this.accesses.BuiltIn
+  }
+
+  # Getter for non built in accesses
+  [object[]] GetNonBuiltInAccesses() {
+    return $this.accesses.NonBuiltIn
+  }
+
+  # Getter for current acl accesses
+  [object] GetAccesses() {
+    return ($this.GetNonBuiltInAccesses() + $this.GetBuiltInAccesses())
+  }
+
+  # Populate maat access groups based on the current acl accesses
+  [void] TranslateAccessesToGroups() {
+    $accessIndex = 0
+    # 1 acl access = 1 identity reference
+    foreach ($aclAccess in $this.GetNonBuiltInAccesses()) {
+      $accessPermissions = $aclAccess.GetPermissions()
+      $translated = $aclAccess.TranslateToADGroups()
+
+      if ($translated) {
+        Write-Host "`n$($accessIndex + 1)) $($translated[0].Name): $accessPermissions"
+
+        # Create access group instance + bind it to the directory
+        [MaatAccess]$maatAccessToDir = [MaatAccess]::new($this.maatDir, $accessPermissions, "acl")
+      
+        foreach ($matchingGr in $translated) {
+          $this.maatDir.GetADConnector().ResolveADGroupTree($matchingGr, $maatAccessToDir, $null)
+        }
+      }
+
+      $accessIndex++
+    }
+  }
+}
+
+##############################################################################
 # MaatDirectory class : directories accessed by users through groups
 ##############################################################################
 class MaatDirectory {
@@ -390,6 +496,7 @@ class MaatDirectory {
   hidden [string]$dirPath
   hidden [MaatAccessGroup[]]$dirAccessGroups = @()
   hidden [MaatResult]$resultRef
+  hidden [MaatACLConnector]$aclConnector = [MaatACLConnector]::new($this)
 
   # Constructors
   MaatDirectory([System.Xml.XmlElement]$dirXmlContent, [MaatResult]$result) {
@@ -417,6 +524,7 @@ class MaatDirectory {
     return $this.dirName
   }
 
+  # Getter method to return dir path
   [string] GetPath() {
     return $this.dirPath
   }
@@ -424,6 +532,11 @@ class MaatDirectory {
   # Getter method to return current dir result instance reference
   [MaatResult] GetResultRef() {
     return $this.resultRef
+  }
+
+  # Getter for acl connector
+  [MaatACLConnector] GetACLConnector() {
+    return $this.aclConnector
   }
 
   # Getter method to return the list of access groups
@@ -463,68 +576,11 @@ class MaatDirectory {
     $this.dirAccessGroups += $newAccessGroup
   }
 
-  # Method to return not built in directory ACL accesses
-  [object[]] GetNonBuiltInACLAccesses() {
-    $acl = Get-ACL -Path $this.GetPath()
-    $nonBuiltIn = $acl.Access.Where({ ($_.IdentityReference -notlike "*NT*\SYST*") -and ($_.IdentityReference -notlike "BUILTIN\*") })
-
-    return $nonBuiltIn
-  }
-
   # Method to populate access groups and members from ACL
-  [void] GetAccessFromACL() {
+  [void] GetAccessFromACL([string]$scope = "NonBuiltIn") {
     Write-Host "`nChecking ACL on $($this.dirName)..."
 
-    $aclAccesses = $this.GetNonBuiltInACLAccesses()
-    Write-Host "> $($aclAccesses.count) ACL references found on '$($this.dirName)'"
-
-    $accessIndex = 0
-    # 1 acl access = 1 identity reference
-    foreach ($aclAccess in $aclAccesses) {
-      # Translate MS file system rights to simple R/RW short string
-      $accessPermissions = "R"
-      if ($aclAccess.FileSystemRights -like "*Modify*") {
-        $accessPermissions = "RW"
-      }
-      
-      $adConnector = $this.GetADConnector()
-      $adGroupsMatchingRef = $adConnector.TranslateACLIDentityToGroups($aclAccess.IdentityReference)
-      Write-Host "`n$($accessIndex + 1)) $($adGroupsMatchingRef[0].Name): $accessPermissions"
-
-      if ($adGroupsMatchingRef) {
-        # Create access group instance + bind it to the directory
-        [MaatAccess]$maatAccessToDir = [MaatAccess]::new($this, $accessPermissions, "acl")
-      
-        foreach ($matchingGr in $adGroupsMatchingRef) {
-          $adConnector.ResolveADGroupTree($matchingGr, $maatAccessToDir, $null)
-        }
-      }
-
-      $accessIndex++
-    }
-  }
-
-  # Method to retreive current directory accesses
-  [void] GetDirAccess([bool]$skipACL = $false) {
-    # Retreive every mention of the specified directory
-    Write-Host "`n$($this.dirAccessGroups.count) group access to '$($this.dirName)' specified in config"
-
-    foreach ($maatAccessGroup in $this.dirAccessGroups) {
-      Write-Host "$($maatAccessGroup.GetName()): $($maatAccessGroup.GetDirAccess($this).GetPermissions())"
-
-      # Get the group node related to the directory to retreive its name
-      $adConnector = $this.GetADConnector()
-      $accessGroupsInDomain = $adConnector.SearchGroupListForIdentity($maatAccessGroup.GetName(), $adConnector.GetServers())
-
-      foreach ($adAccessGroup in $accessGroupsInDomain) {
-        $maatAccessGroup.SetAccessMembersFromADGroup($adAccessGroup)
-      }
-    }
-
-    # Retreive dir access from acl and export it to a dedicated directory
-    if (!$skipACL) {
-      $this.GetAccessFromACL()
-    }
+    $this.aclConnector.TranslateAccessesToGroups()
   }
 
   # Give feedback on the current dir accesses
@@ -547,7 +603,7 @@ class MaatDirectory {
 
     foreach ($usr in $enabledUsers) {
       $usrAccessOverDirByPermissions = $usr.GetDirAccessGroupsByPerm($this)
-      $usrPermissions = ($usrAccessOverDirByPermissions.RW.count -gt 0) ? "RW" : "R"
+      $usrPermissions = $usr.GetDirPermissions($usrAccessOverDirByPermissions)
       $usrAccessHighestGroups = $usrAccessOverDirByPermissions[$usrPermissions] | foreach-object { $_.GetName() }
 
       Write-Host "$($usr.GetSAN()): $usrPermissions ($($usrAccessHighestGroups -join ', '))"
@@ -582,11 +638,12 @@ class MaatDirectory {
 class MaatAccess {
   hidden [MaatDirectory] $targetDirectory
   hidden [string]$permissions
-  hidden [string]$type = "config"
+  hidden [string]$type = "acl"
+  hidden [string[]]$validPermissions = @("R", "RX", "RW", "RWX")
 
   # Constructors
   MaatAccess([MaatDirectory]$dir, [string]$perm, [string]$type) {
-    if ($perm -notin "R", "RW") {
+    if ($perm -notin $this.validPermissions) {
       throw "MaatAccess::Invalid permissions provided: $perm"
     }
     
@@ -605,22 +662,26 @@ class MaatAccess {
     return $this.permissions
   }
 
-  # Getter method to return access type
-  [string] GetAccessType() {
-    return $this.type
-  }
-
   # Setter method to change permission value
   [void] SetPermissions([string] $perm) {
-    if ($perm -in "R", "RW") {
+    if ($perm -in $this.validPermissions) {
       $this.permissions = $perm
     }
+  }
+
+  [bool] CheckHigherPermissions([string]$perm) {
+    if ($perm -notin $this.validPermissions) {
+      throw "MaatAccess::Invalid permissions provided for update: $perm"
+    }
+
+    return $this.validPermissions.IndexOf($perm) -gt $this.validPermissions.IndexOf($this.permissions)
   }
 
   # Method to update access permissions if the provided permissions are highest
   [bool] UpdatePermissions([string]$perm) {
     $permChanged = $false
-    if (($this.permissions -ne "RW") -and ($perm -eq "RW")) {
+
+    if ($this.CheckHigherPermissions($perm)) {
       $permChanged = $true
       $this.permissions = $perm
     }
@@ -898,32 +959,37 @@ class MaatAccessGroupMember {
   # Method to retreive user access groups with given perms over the given dir
   [object] GetDirAccessGroupsByPerm([MaatDirectory]$dir) {
     $res = @{
-      R  = @()
-      RW = @()
+      R   = @()
+      RX  = @()
+      RW  = @()
+      RWX = @()
     }
 
     foreach ($gr in $this.GetMemberGroupsRelatedToDir($dir)) {
-      if ($gr.GetDirAccess($dir).GetPermissions() -eq "RW") {
-        $res.RW += $gr
-      }
-      else {
-        $res.R += $gr
-      }
+      $perm = $gr.GetDirAccess($dir).GetPermissions()
+      $res[$perm] += $gr
     }
 
     return $res
   }
 
-  # Method to retreive user permissions over a specific directory
-  [string] GetDirPermissions([MaatDirectory]$dir) {
-    $userDirAccessGroupsByPerm = $this.GetDirAccessGroupsByPerm($dir)
-    return ($userDirAccessGroupsByPerm.RW.count -gt 0) ? "RW" : "R"
+  # Method to retreive user highest permissions over a specific directory
+  [string] GetDirPermissions([object]$orderedGroups) {
+    $perm = ""
+
+    foreach ($p in @("R", "RX", "RW", "RWX")) {
+      if ($orderedGroups[$_].count -gt 0) {
+        $perm = $p
+      }
+    }
+
+    return $perm
   }
 
   # Returns 
   [string[]] GetDirAccessGroupNames([MaatDirectory]$dir) {
     $usrAccessOverDirByPermissions = $this.GetDirAccessGroupsByPerm($dir)
-    $usrPermissions = ($usrAccessOverDirByPermissions.RW.count -gt 0) ? "RW" : "R"
+    $usrPermissions = $this.GetDirPermissions($usrAccessOverDirByPermissions)
 
     return $usrAccessOverDirByPermissions[$usrPermissions] | foreach-object { $_.GetName() }
   }
@@ -1129,8 +1195,11 @@ class MaatComparator {
           # If user is present in both res : check if it changed
           if (($usrSearchInResA.count -gt 0) -and ($usrSearchInResB.count -gt 0)) {
             # Compare permissions
-            $usrAPerm = $usrInResA.GetDirPermissions($dirInResA)
-            $usrBPerm = $usrInResB.GetDirPermissions($dirInResB)
+            $usrAGroups = $usrInResA.GetDirAccessGroupsByPerm($dirInResA)
+            $usrBGroups = $usrInResB.GetDirAccessGroupsByPerm($dirInResB)
+
+            $usrAPerm = $usrInResA.GetDirPermissions($usrAGroups)
+            $usrBPerm = $usrInResB.GetDirPermissions($usrBGroups)
             $permChanged = $usrAPerm -ne $usrBPerm
 
             # New MaatChange if user permissions changed
@@ -1143,8 +1212,6 @@ class MaatComparator {
             }
 
             # Compare access groups
-            $usrAGroups = $usrInResA.GetDirAccessGroupsByPerm($dirInResA)
-            $usrBGroups = $usrInResB.GetDirAccessGroupsByPerm($dirInResB)
             $accessGroupsAreEquals = $this.CompareUserAccessGroups($usrAGroups[$usrAPerm], $usrBGroups[$usrBPerm])
 
             # New MaatChange if user access groups changed
@@ -1159,15 +1226,18 @@ class MaatComparator {
           # If user is present in old res but not in the new
           elseif (($usrSearchInResA.count -gt 0)) {
             $removedUserChange = [MaatChange]::new("$($usrInResA.GetSAN()) lost access permission over $($dir.GetName())", "user")
-            $removedUserChange.SetOldValue($usrInResA.GetDirPermissions($dirInResA))
+            $usrAGroups = $usrInResA.GetDirAccessGroupsByPerm($dirInResA)
+            $removedUserChange.SetOldValue($usrInResA.GetDirPermissions($usrAGroups))
 
             $this.changeList += $removedUserChange
           }
           # Else user is present in new res but not in the old
           else {
             $newUserChange = [MaatChange]::new("$($usrInResB.GetSAN()) gain access permission over $($dir.GetName())", "user")
+            $usrBGroups = $usrInResB.GetDirAccessGroupsByPerm($dirInResB)
+            $newUserPerm = $usrInResB.GetDirPermissions($usrBGroups)
+
             $newUserAccessGroups = $usrInResB.GetDirAccessGroupNames($dirInResB)
-            $newUserPerm = $usrInResB.GetDirPermissions($dirInResB)
             $newUserChange.SetNewValue("$newUserPerm ($newUserAccessGroups)")
 
             $this.changeList += $newUserChange
