@@ -31,14 +31,6 @@ function Invoke-MaatHeart {
       ValueFromPipelineByPropertyName = $false
     )]
     [ValidateNotNullOrEmpty()]
-    [switch]  $SkipACL,
-
-    [Parameter(
-      Mandatory = $false,
-      ValueFromPipeline = $false,
-      ValueFromPipelineByPropertyName = $false
-    )]
-    [ValidateNotNullOrEmpty()]
     [switch]  $DebugMode,
 
     [Parameter(
@@ -139,7 +131,7 @@ function Invoke-MaatHeart {
         $maatDir = [MaatDirectory]::new($dir, $maatHeartResult)
 
         # Retreive dir access from configuration and export it to a dedicated directory
-        $maatDir.GetDirAccess($SkipACL.IsPresent)
+        $maatDir.GetAccessFromACL()
 
         $maatHeartResult.AddDir($maatDir)
         $maatDir.GetAccessFeedback()
