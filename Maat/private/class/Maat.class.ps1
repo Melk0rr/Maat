@@ -346,21 +346,30 @@ class MaatACLAccess {
   hidden [string]$identityReference
   hidden [string]$permissions
   hidden [bool]$inherited
+  hidden [string]$type
 
   MaatACLAccess([object]$accessObject, [MaatACLConnector]$connector) {
     $this.aclConnector = $connector
     $this.identityReference = $accessObject.IdentityReference
 
+    $this.type = "NonBuiltIn"
+    $builtInStrings = @("\\SYST", "BUILTIN\\")
+    if ($this.identityReference -match ($builtInStrings -join '|')) {
+      $this.type = "BuiltIn"
+    }
+
     # If the reference is not an sid : removes the domain reference if any
-    if (($this.identityReference -notmatch $this.sidRegex) -and (j$this.identityReference -match "\\")) {
-      $this.identityReference = $this.identityReference.Split("\")[1]
+    if ($this.type -eq "NonBuiltIn") {
+      if (($this.identityReference -notmatch $this.sidRegex) -and ($this.identityReference -match "\\")) {
+        $this.identityReference = $this.identityReference.Split("\")[1]
+      }
     }
 
     $this.inherited = $accessObject.IsInherited
 
     # Translate MS file system rights to simple RWX short string
     $this.permissions = ""
-    $this.rightsTranslator.keys | foreach-object {
+    @("Read|Write|Modify|FullControl", "Write|Modify|FullControl", "Execute|FullControl") | foreach-object {
       if ($accessObject.FileSystemRights -match $_) {
         $this.permissions += $this.rightsTranslator[$_]
       }
@@ -375,6 +384,11 @@ class MaatACLAccess {
   # Getter for acl access permissions
   [string] GetPermissions() {
     return $this.permissions
+  }
+
+  # Getter for type
+  [string] GetType() {
+    return $this.type
   }
 
   # Returns the related ad connector
@@ -435,10 +449,10 @@ class MaatACLConnector {
 
     $this.owner = $this.acl.Owner
     $accessInstances = $this.acl.Access | foreach-object { [MaatACLAccess]::new($_, $this) }
-    $builtInStrings = @("\\SYST", "BUILTIN\\")
+
     $this.accesses = @{
-      BuiltIn    = $accessInstances.Where({ $_.GetIdentityReference() -match ($builtInStrings -join '|') })
-      NonBuiltIn = $accessInstances.Where({ $_.GetIdentityReference() -notmatch ($builtInStrings -join '|') })
+      BuiltIn    = $accessInstances.Where({ $_.GetType() -eq "BuiltIn" })
+      NonBuiltIn = $accessInstances.Where({ $_.GetType() -eq "NonBuiltIn" })
     }
 
     Write-Host "$($this.accesses.NonBuiltIn.count) ACL references found on $($this.maatDir.GetName())"
@@ -496,13 +510,15 @@ class MaatDirectory {
   hidden [string]$dirPath
   hidden [MaatAccessGroup[]]$dirAccessGroups = @()
   hidden [MaatResult]$resultRef
-  hidden [MaatACLConnector]$aclConnector = [MaatACLConnector]::new($this)
+  hidden [MaatACLConnector]$aclConnector
 
   # Constructors
   MaatDirectory([System.Xml.XmlElement]$dirXmlContent, [MaatResult]$result) {
     $this.dirName = $dirXmlContent.dir_name
     $this.dirPath = $dirXmlContent.dir_path
     $this.resultRef = $result
+
+    $this.aclConnector = [MaatACLConnector]::new($this)
 
     foreach ($accessGroupXml in $dirXmlContent.SelectNodes("*/group")) {
       [MaatAccess]$accessToCurrentDir = [MaatAccess]::new($this, $accessGroupXml.g_permissions, "config")
@@ -577,7 +593,7 @@ class MaatDirectory {
   }
 
   # Method to populate access groups and members from ACL
-  [void] GetAccessFromACL([string]$scope = "NonBuiltIn") {
+  [void] GetAccessFromACL() {
     Write-Host "`nChecking ACL on $($this.dirName)..."
 
     $this.aclConnector.TranslateAccessesToGroups()
@@ -604,6 +620,7 @@ class MaatDirectory {
     foreach ($usr in $enabledUsers) {
       $usrAccessOverDirByPermissions = $usr.GetDirAccessGroupsByPerm($this)
       $usrPermissions = $usr.GetDirPermissions($usrAccessOverDirByPermissions)
+
       $usrAccessHighestGroups = $usrAccessOverDirByPermissions[$usrPermissions] | foreach-object { $_.GetName() }
 
       Write-Host "$($usr.GetSAN()): $usrPermissions ($($usrAccessHighestGroups -join ', '))"
@@ -959,15 +976,15 @@ class MaatAccessGroupMember {
   # Method to retreive user access groups with given perms over the given dir
   [object] GetDirAccessGroupsByPerm([MaatDirectory]$dir) {
     $res = @{
-      R   = @()
-      RX  = @()
-      RW  = @()
-      RWX = @()
+      R   = [MaatAccessGroup[]]@()
+      RX  = [MaatAccessGroup[]]@()
+      RW  = [MaatAccessGroup[]]@()
+      RWX = [MaatAccessGroup[]]@()
     }
 
     foreach ($gr in $this.GetMemberGroupsRelatedToDir($dir)) {
       $perm = $gr.GetDirAccess($dir).GetPermissions()
-      $res[$perm] += $gr
+      $res.$perm += $gr
     }
 
     return $res
@@ -978,7 +995,7 @@ class MaatAccessGroupMember {
     $perm = ""
 
     foreach ($p in @("R", "RX", "RW", "RWX")) {
-      if ($orderedGroups[$_].count -gt 0) {
+      if ($orderedGroups.$p.count -gt 0) {
         $perm = $p
       }
     }
@@ -1004,6 +1021,8 @@ class MaatAccessGroupMember {
   # Method to convert current instance into xml string
   [string] ToXml([MaatDirectory]$dir) {
     $memberDesc = $this.memberDescription ? ($this.memberDescription).Replace("&", "&amp;") : ""
+    $groupsByPerm = $this.GetDirAccessGroupsByPerm($dir)
+    $permissions = $this.GetDirPermissions($groupsByPerm)
     $dirAccessGroupsSimpleXml = $this.GetDirAccessGroupNames($dir) | foreach-object {
       @"
             <g_name>$_</g_name>
@@ -1017,6 +1036,7 @@ class MaatAccessGroupMember {
           <m_name>$($this.memberName)</m_name>
           <m_domain>$($this.memberDomain)</m_domain>
           <m_status>$($this.memberStatus ? "Enabled" : "Disabled")</m_status>
+          <m_permissions>$permissions</m_permissions>
           <m_access_group>$($dirAccessGroupsSimpleXml)</m_access_group>
           <m_description>$memberDesc</m_description>
         </member>
