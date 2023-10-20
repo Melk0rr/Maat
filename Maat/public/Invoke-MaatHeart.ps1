@@ -103,7 +103,7 @@ function Invoke-MaatHeart {
     }
 
     Write-Host $banner`n -f Yellow
-    Write-Host $bannerHeart`n -f DarkRed
+    Write-Host $bannerHeart -f DarkRed
     $startTime = Get-Date
 
     # Retreive List of group names from access configuration + get groups from AD
@@ -113,8 +113,6 @@ function Invoke-MaatHeart {
     if ($Server) {
       $adConnector = [MaatADConnector]::new($Server, $maatHeartResult)
       $maatHeartResult.SetADConnector($adConnector)
-
-      $maatHeartResult.GetADGroupsFromConfig()
     }
 
     if ($DebugMode.IsPresent) {
@@ -122,7 +120,7 @@ function Invoke-MaatHeart {
     }
       
     $accessDirs = $accessConfiguration.SelectNodes("//dir")
-    Write-Host "`nRetreiving access for $($accessDirs.count) directories..."
+    Write-Host "Retreiving access for $($accessDirs.count) directories..."
   }
 
   PROCESS {
