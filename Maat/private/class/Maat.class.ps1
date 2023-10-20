@@ -468,6 +468,11 @@ class MaatACLConnector {
     return $this.accesses.BuiltIn
   }
 
+  # Getter for directory owner
+  [string] GetOwner() {
+    return $this.owner
+  }
+
   # Getter for non built in accesses
   [object[]] GetNonBuiltInAccesses() {
     return $this.accesses.NonBuiltIn
@@ -482,19 +487,27 @@ class MaatACLConnector {
   [void] TranslateAccessesToGroups() {
     $accessIndex = 0
     # 1 acl access = 1 identity reference
-    foreach ($aclAccess in $this.GetNonBuiltInAccesses()) {
+    foreach ($aclAccess in $this.GetAccesses()) {
       $accessPermissions = $aclAccess.GetPermissions()
-      $translated = $aclAccess.TranslateToADGroups()
 
-      if ($translated) {
-        Write-Host "`n$($accessIndex + 1)) $($translated[0].Name): $accessPermissions"
+      # Create access group instance + bind it to the directory
+      [MaatAccess]$maatAccessToDir = [MaatAccess]::new($this.maatDir, $accessPermissions, "acl")
 
-        # Create access group instance + bind it to the directory
-        [MaatAccess]$maatAccessToDir = [MaatAccess]::new($this.maatDir, $accessPermissions, "acl")
-      
-        foreach ($matchingGr in $translated) {
-          $this.maatDir.GetADConnector().ResolveADGroupTree($matchingGr, $maatAccessToDir, $null)
+      if ($aclAccess.GetType() -ne "BuiltIn") {
+        $translated = $aclAccess.TranslateToADGroups()
+
+        if ($translated) {
+          Write-Host "`n$($accessIndex + 1)) $($translated[0].Name): $accessPermissions"
+        
+          foreach ($matchingGr in $translated) {
+            $this.maatDir.GetADConnector().ResolveADGroupTree($matchingGr, $maatAccessToDir, $null)
+          }
         }
+
+      }
+      else {
+        $builtInMaatGroup = $this.maatDir.GetResultRef().GetUniqueAccessGroup($aclAccess.GetIdentityReference(), $maatAccessToDir)
+        Write-Host "`n$($accessIndex + 1)) $($builtInMaatGroup.GetName()): $accessPermissions"
       }
 
       $accessIndex++
@@ -636,6 +649,7 @@ class MaatDirectory {
     <dir>
       <dir_name>$($this.dirName)</dir_name>
       <dir_path>$($this.dirPath)</dir_path>
+      <dir_owner>$($this.aclConnector.GetOwner())</dir_owner>
       <dir_access_groups>
       $dirAccessGroupsXml
       </dir_access_groups>
