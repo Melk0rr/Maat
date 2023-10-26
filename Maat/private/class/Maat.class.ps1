@@ -352,14 +352,17 @@ class MaatACLAccess {
     $this.aclConnector = $connector
     $this.identityReference = $accessObject.IdentityReference
 
-    $this.type = "NonBuiltIn"
-    $builtInStrings = @("\\SYST", "BUILTIN\\", "CREAT*")
-    if ($this.identityReference -match ($builtInStrings -join '|')) {
+    $this.type = "Other"
+    $localStrings = @("\\SYST", "CREAT*")
+    if ($this.identityReference -match ($localStrings -join '|')) {
+      $this.type = "Local"
+    }
+    if ($this.identityReference -match "BUILTIN\\") {
       $this.type = "BuiltIn"
     }
 
     # If the reference is not an sid : removes the domain reference if any
-    if ($this.type -eq "NonBuiltIn") {
+    if ($this.type -eq "Other") {
       if (($this.identityReference -notmatch $this.sidRegex) -and ($this.identityReference -match "\\")) {
         $this.identityReference = $this.identityReference.Split("\")[1]
       }
@@ -379,6 +382,16 @@ class MaatACLAccess {
   # Getter for identity reference
   [string] GetIdentityReference() {
     return $this.identityReference
+  }
+
+  # Handles backslash for builtin and local refs
+  [string] GetFormatedIdentityReference() {
+    $formated = $this.identityReference
+    if ($formated -match "\\") {
+      $formated = $formated.Split("\")[1]
+    }
+
+    return $formated
   }
 
   # Getter for acl access permissions
@@ -402,13 +415,13 @@ class MaatACLAccess {
     [string[]]$servers = $this.GetADConnector().GetServers()
 
     # Check if identity reference can be found in the ad group list built from configuration
-    $resACLGroup = $this.GetADConnector().SearchGroupListForIdentity($this.identityReference, $servers)
+    $resACLGroup = $this.GetADConnector().SearchGroupListForIdentity($this.GetFormatedIdentityReference(), $servers)
 
     if ($resACLGroup.count -gt 0) {
       $this.identityReference = $resACLGroup[0].Name
     }
 
-    $resACLGroup = $this.GetADConnector().GetADGroups($this.identityReference, $servers)
+    $resACLGroup = $this.GetADConnector().GetADGroups($this.GetFormatedIdentityReference(), $servers)
     
     # If the identity reference is an SID and was found in one of the domains
     # Check a second time using the name of the group found
@@ -451,8 +464,9 @@ class MaatACLConnector {
     $accessInstances = $this.acl.Access | foreach-object { [MaatACLAccess]::new($_, $this) }
 
     $this.accesses = @{
-      BuiltIn    = $accessInstances.Where({ $_.GetType() -eq "BuiltIn" })
-      NonBuiltIn = $accessInstances.Where({ $_.GetType() -eq "NonBuiltIn" })
+      Local   = $accessInstances.Where({ $_.GetType() -eq "Local" })
+      BuiltIn = $accessInstances.Where({ $_.GetType() -eq "NonBuiltIn" })
+      Other   = $accessInstances.Where({ $_.GetType() -eq "Other" })
     }
 
     Write-Host "$(($this.access.BuiltIn + $this.accesses.NonBuiltIn).count) ACL references found on $($this.maatDir.GetName())"
@@ -463,24 +477,14 @@ class MaatACLConnector {
     return $this.maatDir
   }
 
-  # Getter for built in accesses (NT\System, BUILTIN\Admins, etc)
-  [object[]] GetBuiltInAccesses() {
-    return $this.accesses.BuiltIn
-  }
-
   # Getter for directory owner
   [string] GetOwner() {
     return $this.owner
   }
 
-  # Getter for non built in accesses
-  [object[]] GetNonBuiltInAccesses() {
-    return $this.accesses.NonBuiltIn
-  }
-
   # Getter for current acl accesses
   [object] GetAccesses() {
-    return ($this.GetBuiltInAccesses() + $this.GetNonBuiltInAccesses())
+    return ($this.accesses.Local + $this.accesses.BuiltIn + $this.accesses.Other)
   }
 
   # Populate maat access groups based on the current acl accesses
@@ -491,9 +495,9 @@ class MaatACLConnector {
       $accessPermissions = $aclAccess.GetPermissions()
 
       # Create access group instance + bind it to the directory
-      [MaatAccess]$maatAccessToDir = [MaatAccess]::new($this.maatDir, $accessPermissions, "ADGroup")
+      [MaatAccess]$maatAccessToDir = [MaatAccess]::new($this.maatDir, $accessPermissions, "Other")
 
-      if ($aclAccess.GetType() -ne "BuiltIn") {
+      if (($aclAccess.GetType() -ne "Local") -and ($aclAccess.GetIdentityReference() -ne "BUILTIN\Users")) {
         $translated = $aclAccess.TranslateToADGroups()
 
         if ($translated) {
@@ -506,9 +510,16 @@ class MaatACLConnector {
 
       }
       else {
-        $maatAccessToDir.SetType("BuiltIn")
-        $builtInMaatGroup = $this.maatDir.GetResultRef().GetUniqueAccessGroup($aclAccess.GetIdentityReference(), $maatAccessToDir)
-        Write-Host "`n$($accessIndex + 1)) $($builtInMaatGroup.GetName()): $accessPermissions"
+        if ($aclAccess.GetIdentityReference() -eq "BUILTIN\Users") {
+          Write-Host "$($aclAccess.GetIdentityReference()) has access to $($this.maatDir.GetName()). Not Exploring it since it contains all domain users..."
+          $maatAccessToDir.SetType("BuiltInUsers")
+
+        }
+        else {
+          $maatAccessToDir.SetType("Local")
+        }
+        $notExploredMaatGroup = $this.maatDir.GetResultRef().GetUniqueAccessGroup($aclAccess.GetIdentityReference(), $maatAccessToDir)
+        Write-Host "`n$($accessIndex + 1)) $($notExploredMaatGroup.GetName()): $accessPermissions"
       }
 
       $accessIndex++
