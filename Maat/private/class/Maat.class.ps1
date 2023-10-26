@@ -353,7 +353,7 @@ class MaatACLAccess {
     $this.identityReference = $accessObject.IdentityReference
 
     $this.type = "NonBuiltIn"
-    $builtInStrings = @("\\SYST", "BUILTIN\\")
+    $builtInStrings = @("\\SYST", "BUILTIN\\", "CREAT*")
     if ($this.identityReference -match ($builtInStrings -join '|')) {
       $this.type = "BuiltIn"
     }
@@ -455,7 +455,7 @@ class MaatACLConnector {
       NonBuiltIn = $accessInstances.Where({ $_.GetType() -eq "NonBuiltIn" })
     }
 
-    Write-Host "$($this.accesses.NonBuiltIn.count) ACL references found on $($this.maatDir.GetName())"
+    Write-Host "$(($this.access.BuiltIn + $this.accesses.NonBuiltIn).count) ACL references found on $($this.maatDir.GetName())"
   }
 
   # Getter for maat directory instance
@@ -480,7 +480,7 @@ class MaatACLConnector {
 
   # Getter for current acl accesses
   [object] GetAccesses() {
-    return ($this.GetNonBuiltInAccesses() + $this.GetBuiltInAccesses())
+    return ($this.GetBuiltInAccesses() + $this.GetNonBuiltInAccesses())
   }
 
   # Populate maat access groups based on the current acl accesses
@@ -491,7 +491,7 @@ class MaatACLConnector {
       $accessPermissions = $aclAccess.GetPermissions()
 
       # Create access group instance + bind it to the directory
-      [MaatAccess]$maatAccessToDir = [MaatAccess]::new($this.maatDir, $accessPermissions, "acl")
+      [MaatAccess]$maatAccessToDir = [MaatAccess]::new($this.maatDir, $accessPermissions, "ADGroup")
 
       if ($aclAccess.GetType() -ne "BuiltIn") {
         $translated = $aclAccess.TranslateToADGroups()
@@ -506,6 +506,7 @@ class MaatACLConnector {
 
       }
       else {
+        $maatAccessToDir.SetType("BuiltIn")
         $builtInMaatGroup = $this.maatDir.GetResultRef().GetUniqueAccessGroup($aclAccess.GetIdentityReference(), $maatAccessToDir)
         Write-Host "`n$($accessIndex + 1)) $($builtInMaatGroup.GetName()): $accessPermissions"
       }
@@ -516,6 +517,52 @@ class MaatACLConnector {
 }
 
 ##############################################################################
+# MaatDirectoryStats class : class providing stats on a given directory
+##############################################################################
+class MaatDirectoryStats {
+  hidden [MaatDirectory]$maatDir
+  hidden [object]$stats = @{}
+
+  MaatDirectoryStats([MaatDirectory]$target) {
+    $this.maatDir = $target
+  }
+
+  # Getter for current stats
+  [object] GetStats() {
+    return $this.stats
+  }
+
+  [void] ComputeStats() {
+    $accessGroups = $this.maatDir.GetAccessGroupsByPerm()
+
+    $groupStats = @{}
+    
+    foreach ($p in $accessGroups.keys) {
+
+      $statList += @{ n = "" }
+      
+      $groupStats.$p = $statList
+    }
+
+    $this.stats.groups = $groupStats
+  }
+
+  [string] ToXml() {
+    return @"
+      <dir_stats>
+        <dir_group_stats>
+        
+        </dir_group_stats>
+        <dir_user_stats>
+
+        </dir_user_stats>
+      </dir_stats>
+"@
+  }
+}
+
+
+##############################################################################
 # MaatDirectory class : directories accessed by users through groups
 ##############################################################################
 class MaatDirectory {
@@ -524,6 +571,7 @@ class MaatDirectory {
   hidden [MaatAccessGroup[]]$dirAccessGroups = @()
   hidden [MaatResult]$resultRef
   hidden [MaatACLConnector]$aclConnector
+  hidden [object]$stats
 
   # Constructors
   MaatDirectory([System.Xml.XmlElement]$dirXmlContent, [MaatResult]$result) {
@@ -573,6 +621,23 @@ class MaatDirectory {
     return $this.resultRef.GetAllUniqueAccessGroups().Where({ $_.GivesPermissionsOnDir($this) })
   }
 
+  # Returns access groups giving access on current directory ordered by permissions
+  [object] GetAccessGroupsByPerm() {
+    $accessGroups = @{
+      R   = @()
+      RX  = @()
+      RW  = @()
+      RWX = @()
+    }
+
+    foreach ($gr in $this.GetAccessGroups()) {
+      $perm = $gr.GetDirAccess($this).GetPermissions()
+      $accessGroups.$perm += $gr
+    }
+
+    return $accessGroups
+  }
+
   [string[]] GetAccessGroupNames() {
     return $this.dirAccessGroups | foreach-object { $_.GetName() }
   }
@@ -588,6 +653,25 @@ class MaatDirectory {
   # Get the list of users whom have access to the current directory
   [MaatAccessGroupMember[]] GetAccessUsers() {
     return $this.resultRef.GetAllUniqueAccessGroupMembers().Where({ $_.HasPermissionsOnDir($this.dirName) })
+  }
+
+  # Returns access users ordered by permission
+  [object] GetAccessUsersByPerms() {
+    $accessUsers = @{
+      R   = @()
+      RX  = @()
+      RW  = @()
+      RWX = @()
+    }
+
+    foreach ($usr in $this.GetAccessUsers()) {
+      $usrAccessOverDirByPermissions = $usr.GetDirAccessGroupsByPerm($this)
+      $usrPermissions = $usr.GetDirPermissions($usrAccessOverDirByPermissions)
+
+      $accessUsers.$usrPermissions += $usr
+    }
+
+    return $accessUsers
   }
 
   # Method to retreive an access group based on a group name
@@ -635,7 +719,6 @@ class MaatDirectory {
       $usrPermissions = $usr.GetDirPermissions($usrAccessOverDirByPermissions)
 
       $usrAccessHighestGroups = $usrAccessOverDirByPermissions[$usrPermissions] | foreach-object { $_.GetName() }
-
       Write-Host "$($usr.GetSAN()): $usrPermissions ($($usrAccessHighestGroups -join ', '))"
     }
   }
@@ -691,6 +774,11 @@ class MaatAccess {
   # Getter method to return permissions associated with directory
   [string] GetPermissions() {
     return $this.permissions
+  }
+
+  # Setter method for access type
+  [void] SetType([string]$type) {
+    $this.type = $type
   }
 
   # Setter method to change permission value
@@ -908,10 +996,12 @@ class MaatAccessGroup {
 
   # Method to convert current instance into xml string
   [string] ToXml([MaatDirectory]$dir) {
+    $dirAccess = $this.GetDirAccess($dir)
     return @"
       <group>
         <g_name>$($this.groupName)</g_name>
-        <g_permissions>$($this.GetDirAccess($dir).GetPermissions())</g_permissions>
+        <g_permissions>$($dirAccess.GetPermissions())</g_permissions>
+        <g_access_type>$($dirAccess.GetType())</g_access_type>
       </group>
 "@
   }
