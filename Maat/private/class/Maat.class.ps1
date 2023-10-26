@@ -516,51 +516,6 @@ class MaatACLConnector {
   }
 }
 
-##############################################################################
-# MaatDirectoryStats class : class providing stats on a given directory
-##############################################################################
-class MaatDirectoryStats {
-  hidden [MaatDirectory]$maatDir
-  hidden [object]$stats = @{}
-
-  MaatDirectoryStats([MaatDirectory]$target) {
-    $this.maatDir = $target
-  }
-
-  # Getter for current stats
-  [object] GetStats() {
-    return $this.stats
-  }
-
-  [void] ComputeStats() {
-    $accessGroups = $this.maatDir.GetAccessGroupsByPerm()
-
-    $groupStats = @{}
-    
-    foreach ($p in $accessGroups.keys) {
-
-      $statList += @{ n = "" }
-      
-      $groupStats.$p = $statList
-    }
-
-    $this.stats.groups = $groupStats
-  }
-
-  [string] ToXml() {
-    return @"
-      <dir_stats>
-        <dir_group_stats>
-        
-        </dir_group_stats>
-        <dir_user_stats>
-
-        </dir_user_stats>
-      </dir_stats>
-"@
-  }
-}
-
 
 ##############################################################################
 # MaatDirectory class : directories accessed by users through groups
@@ -571,7 +526,6 @@ class MaatDirectory {
   hidden [MaatAccessGroup[]]$dirAccessGroups = @()
   hidden [MaatResult]$resultRef
   hidden [MaatACLConnector]$aclConnector
-  hidden [object]$stats
 
   # Constructors
   MaatDirectory([System.Xml.XmlElement]$dirXmlContent, [MaatResult]$result) {
