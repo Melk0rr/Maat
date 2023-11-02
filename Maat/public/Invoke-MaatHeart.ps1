@@ -102,9 +102,13 @@ function Invoke-MaatHeart {
       throw "MaatHeart::Invalid output directory !"
     }
 
+    $startTime = Get-Date -format 'yyyy-MM-dd HH:mm:ss'
+
     Write-Host $banner`n -f Yellow
-    Write-Host $bannerHeart -f DarkRed
-    $startTime = Get-Date
+    $heartTitle = "MaatHeart ($startTime)"
+    Write-Host $heartTitle -f DarkRed
+    Write-Host -f DarkRed ('-' * $heartTitle.length)
+    
 
     # Retreive List of group names from access configuration + get groups from AD
     [xml]$accessConfiguration = Get-Content $XMLConfigPath
