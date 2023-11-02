@@ -162,8 +162,16 @@ class MaatResult {
 
   # Method to convert current instance into xml string
   [string] ToXml() {
-    $directoriesXml = foreach ($dir in $this.resDirectories) {
-      $dir.ToXml()
+    $directoriesXml = $this.resDirectories | foreach-object {
+      $_.ToXml()
+    }
+
+    $accessGroups = $this.uniqueAccessGroups | foreach-object {
+      $_.ToXml()
+    }
+
+    $accessUsers = $this.uniqueAccessUsers | foreach-object {
+      $_.ToXml()
     }
 
     return @"
@@ -174,6 +182,14 @@ class MaatResult {
   <directories>
   $directoriesXml
   </directories>
+
+  <access_groups>
+  $accessGroups
+  </access_groups>
+
+  <access_users>
+  $accessUsers
+  </access_users>
 </maat_result>
 "@
   }
@@ -272,14 +288,30 @@ class MaatADConnector {
     $currentGroupName = $maatAccessGroup.GetName()
 
     $parentLog = $parentGroup ? " $($parentGroup.GetName()) subgroup" : ""
-    $this.maat.HandleLogs("`nResolving$parentLog $currentGroupName group tree...", "White")
+    $this.maat.HandleLogs("Resolving$parentLog $currentGroupName group tree...", "White")
 
     if ($parentGroup) {
       $parentGroup.AddSubGroup($maatAccessGroup, $true)
     }
 
     $currentSrv = (Split-DN $adGroup.DistinguishedName).Domain
-    $objectMembers = $adGroup.members | foreach-object { Get-ADObject $_ -Server $currentSrv }
+
+    $this.maat.HandleLogs("Retreiving $currentGroupName member objects from $currentSrv", "White")
+    $objectMembers = @()
+    foreach ($m in $adGroup.members) {
+      try {
+        $obj = Get-ADObject $m -Server $currentSrv
+
+        if ($obj) {
+          $objectMembers += $obj
+        }
+      }
+      catch {
+        $this.maat.HandleLogs("Could not find $m in $currentSrv", "Yellow")
+      }
+    }
+
+    # Splitting results by type
     [object[]]$groupAndForeignPrincipals = $objectMembers.Where({ $_.ObjectClass -in "group", "foreignSecurityPrincipal" })
     [object[]]$userMembers = $objectMembers.Where({ $_.ObjectClass -eq "user" })
 
@@ -295,12 +327,17 @@ class MaatADConnector {
     }
 
     foreach ($gr in $groupAndForeignPrincipals) {
-      $this.maat.HandleLogs("`nRecursively looking into sub group $($gr.Name) from $currentSrv", "White")
+      $this.maat.HandleLogs("Recursively looking into sub group $($gr.Name) from $currentSrv", "White")
 
       # Classic sub group recursivity
       if ($gr.ObjectClass -eq "group") {
+        $this.maat.HandleLogs("Retreiving$parentLog $($gr.Name) from $currentSrv", "White")
+        
         $subADGroup = Get-ADGroup -Filter { Name -eq $gr.Name } -Server $currentSrv -Properties Description, Members
-        $this.ResolveADGroupTree($subADGroup, $access, $maatAccessGroup)
+
+        if ($subADGroup) {
+          $this.ResolveADGroupTree($subADGroup, $access, $maatAccessGroup)
+        }
 
       }
       # Foreign group : checking recursively into group found in foreign domain
@@ -313,13 +350,12 @@ class MaatADConnector {
 
             if ($subForeignADGroup) {
               $this.maat.HandleLogs("Found foreign group in $d : $($subForeignADGroup.name)", "Green")
+              $this.ResolveADGroupTree($subForeignADGroup, $access, $maatAccessGroup)
 
             }
             else {
               $this.maat.HandleLogs("Could not find $($gr.Name) in $d", "Red")
             }
-
-            $this.ResolveADGroupTree($subForeignADGroup, $access, $maatAccessGroup)
           }
           catch {
             $this.maat.HandleLogs("MaatResolveTree::Error while retreiving foreign principal $($gr.Name): $_", "Red")
@@ -428,7 +464,7 @@ class MaatACLAccess {
     if ($this.identityReference -match $this.sidRegex) {
       $resCount = $resACLGroup.count
       if (($resCount -gt 0) -and ($resCount -ne $servers.count)) {
-        Write-Host "`nFound only $resCount group(s) matching $($this.identityReference) in $resCount domains. Looking a second time with new identity reference..."
+        Write-Host "`n$($this.identityReference): found only $resCount match in $resCount domains. Looking a second time with new identity reference..."
         $this.identityReference = $resACLGroup[0].Name
         $resACLGroup = $this.GetADConnector().GetADGroups($this.identityReference, $servers)
 
@@ -465,11 +501,11 @@ class MaatACLConnector {
 
     $this.accesses = @{
       Local   = $accessInstances.Where({ $_.GetType() -eq "Local" })
-      BuiltIn = $accessInstances.Where({ $_.GetType() -eq "NonBuiltIn" })
+      BuiltIn = $accessInstances.Where({ $_.GetType() -eq "BuiltIn" })
       Other   = $accessInstances.Where({ $_.GetType() -eq "Other" })
     }
 
-    Write-Host "$(($this.access.BuiltIn + $this.accesses.NonBuiltIn).count) ACL references found on $($this.maatDir.GetName())"
+    Write-Host "$(($this.accesses.Local + $this.accesses.BuiltIn + $this.accesses.Other).count) ACL references found on $($this.maatDir.GetName())"
   }
 
   # Getter for maat directory instance
@@ -493,16 +529,16 @@ class MaatACLConnector {
     # 1 acl access = 1 identity reference
     foreach ($aclAccess in $this.GetAccesses()) {
       $accessPermissions = $aclAccess.GetPermissions()
+      Write-Host "`n$($accessIndex + 1)) $($aclAccess.GetIdentityReference()): $accessPermissions"
 
       # Create access group instance + bind it to the directory
-      [MaatAccess]$maatAccessToDir = [MaatAccess]::new($this.maatDir, $accessPermissions, "Other")
+      [MaatAccess]$maatAccessToDir = [MaatAccess]::new($this.maatDir, $accessPermissions, $aclAccess.GetType())
 
       if (($aclAccess.GetType() -ne "Local") -and ($aclAccess.GetIdentityReference() -ne "BUILTIN\Users")) {
         $translated = $aclAccess.TranslateToADGroups()
 
         if ($translated) {
-          Write-Host "`n$($accessIndex + 1)) $($translated[0].Name): $accessPermissions"
-        
+          Write-Host -f Green "`n$($aclAccess.GetIdentityReference()) -> $($translated[0].Name)"
           foreach ($matchingGr in $translated) {
             $this.maatDir.GetADConnector().ResolveADGroupTree($matchingGr, $maatAccessToDir, $null)
           }
@@ -512,14 +548,9 @@ class MaatACLConnector {
       else {
         if ($aclAccess.GetIdentityReference() -eq "BUILTIN\Users") {
           Write-Host "$($aclAccess.GetIdentityReference()) has access to $($this.maatDir.GetName()). Not Exploring it since it contains all domain users..."
-          $maatAccessToDir.SetType("BuiltInUsers")
+        }
 
-        }
-        else {
-          $maatAccessToDir.SetType("Local")
-        }
         $notExploredMaatGroup = $this.maatDir.GetResultRef().GetUniqueAccessGroup($aclAccess.GetIdentityReference(), $maatAccessToDir)
-        Write-Host "`n$($accessIndex + 1)) $($notExploredMaatGroup.GetName()): $accessPermissions"
       }
 
       $accessIndex++
@@ -656,55 +687,61 @@ class MaatDirectory {
 
   # Method to populate access groups and members from ACL
   [void] GetAccessFromACL() {
-    Write-Host "`nChecking ACL on $($this.dirName)..."
-
     $this.aclConnector.TranslateAccessesToGroups()
   }
 
   # Give feedback on the current dir accesses
   [void] GetAccessFeedback() {
-    Write-Host "`n######## $($this.dirName) - Feedback ########"
+    $title = "$($this.dirName) - Feedback"
+    Write-Host -f Blue `n$title
+    Write-Host -f Blue ("-" * $title.length)
 
     # Feedback on groups
-    $accessGroups = $this.GetAccessGroups()
-    Write-Host "$($accessGroups.count) group(s) have access to $($this.dirName) :"
+    $accessGroups = $this.GetAccessGroupsByPerm()
+    $accessGroupCount = ($accessGroups.R + $accessGroups.RX + $accessGroups.RW + $accessGroups.RWX).count
+    Write-Host -f DarkRed "Access groups: $accessGroupCount"
 
-    foreach ($gr in $accessGroups) {
-      $groupAccess = $gr.GetDirAccess($this).GetPermissions()
-      Write-Host "$($gr.GetName()): $groupAccess"
+    foreach ($p in $accessGroups.keys) {
+      $groupNames = $accessGroups.$p | foreach-object { "   $($_.GetName())" }
+      Write-Host -f DarkRed "$p access: $($accessGroups.$p.count)"
+      Write-Host ($groupNames -join "`n")
     }
 
     # Feedback on users
     $accessUsers = $this.GetAccessUsers()
     $enabledUsers = $accessUsers.Where({ $_.GetStatus() })
-    Write-Host "`n$($enabledUsers.count) user(s) have access to $($this.dirName) ($($accessUsers.count - $enabledUsers.count) disabled) :"
+    Write-Host -f DarkRed "`nAccess users: $($enabledUsers.count) ($($accessUsers.count - $enabledUsers.count) disabled)"
 
-    foreach ($usr in $enabledUsers) {
-      $usrAccessOverDirByPermissions = $usr.GetDirAccessGroupsByPerm($this)
-      $usrPermissions = $usr.GetDirPermissions($usrAccessOverDirByPermissions)
+    $accessUserOrdered = $this.GetAccessUsersByPerms()
+    foreach ($p in $accessUserOrdered.keys) {
+      
+      $usrNames = $accessUserOrdered.$p | foreach-object {
+        $usr = $_
+        $usrAccessOverDirByPermissions = $usr.GetDirAccessGroupsByPerm($this)
 
-      $usrAccessHighestGroups = $usrAccessOverDirByPermissions[$usrPermissions] | foreach-object { $_.GetName() }
-      Write-Host "$($usr.GetSAN()): $usrPermissions ($($usrAccessHighestGroups -join ', '))"
+        $usrAccessHighestGroups = $usrAccessOverDirByPermissions.$p | foreach-object { $_.GetName() }
+        $name = "   $($usr.GetSAN()) ($($usrAccessHighestGroups -join ', '))"
+
+        if (!$usr.GetStatus()) {
+          $name += " > Disabled"
+        }
+
+        $name
+      }
+
+      Write-Host -f DarkRed "$p access: $($accessUserOrdered.$p.count)"
+      Write-Host ($usrNames -join "`n")
     }
   }
 
   # Method to convert current instance into xml string
   [string] ToXml() {
-    $dirAccessGroupsXml = $this.GetAccessGroups() | foreach-object { $_.ToXml($this) }
-    $dirAccessUsersXml = $this.GetAccessUsers() | foreach-object { $_.ToXml($this) }
 
     return @"
     <dir>
       <dir_name>$($this.dirName)</dir_name>
       <dir_path>$($this.dirPath)</dir_path>
       <dir_owner>$($this.aclConnector.GetOwner())</dir_owner>
-      <dir_access_groups>
-      $dirAccessGroupsXml
-      </dir_access_groups>
-
-      <dir_access_users>
-      $dirAccessUsersXml
-      </dir_access_users>
     </dir>
   
 "@
@@ -717,7 +754,7 @@ class MaatDirectory {
 class MaatAccess {
   hidden [MaatDirectory] $targetDirectory
   hidden [string]$permissions
-  hidden [string]$type = "acl"
+  hidden [string]$type
   hidden [string[]]$validPermissions = @("R", "RX", "RW", "RWX")
 
   # Constructors
@@ -739,6 +776,11 @@ class MaatAccess {
   # Getter method to return permissions associated with directory
   [string] GetPermissions() {
     return $this.permissions
+  }
+
+  # Getter for access Type
+  [string] GetType() {
+    return $this.type
   }
 
   # Setter method for access type
@@ -960,13 +1002,27 @@ class MaatAccessGroup {
   }
 
   # Method to convert current instance into xml string
-  [string] ToXml([MaatDirectory]$dir) {
-    $dirAccess = $this.GetDirAccess($dir)
+  [string] ToXml() {
+    $dirNames = $this.GetAccesses() | foreach-object {
+      @"
+          <dir>
+            <dir_name>$($_.GetDirectory().GetName())</dir_name>
+            <dir_access>$($_.GetPermissions())</dir_access>
+          </dir>
+"@
+    }
+
+    $subGroupNames = $this.subGroups | foreach-object {
+      @"
+          <g_name>$($_.GetName())</g_name>
+"@
+    }
+
     return @"
       <group>
         <g_name>$($this.groupName)</g_name>
-        <g_permissions>$($dirAccess.GetPermissions())</g_permissions>
-        <g_access_type>$($dirAccess.GetType())</g_access_type>
+        <g_subgroups>$subGroupNames</g_subgroups>
+        <g_accessed_dir>$dirNames</g_accessed_dir>
       </group>
 "@
   }
@@ -1045,10 +1101,10 @@ class MaatAccessGroupMember {
   # Method to retreive user access groups with given perms over the given dir
   [object] GetDirAccessGroupsByPerm([MaatDirectory]$dir) {
     $res = @{
-      R   = [MaatAccessGroup[]]@()
-      RX  = [MaatAccessGroup[]]@()
-      RW  = [MaatAccessGroup[]]@()
-      RWX = [MaatAccessGroup[]]@()
+      R   = @()
+      RX  = @()
+      RW  = @()
+      RWX = @()
     }
 
     foreach ($gr in $this.GetMemberGroupsRelatedToDir($dir)) {
@@ -1088,11 +1144,9 @@ class MaatAccessGroupMember {
   }
 
   # Method to convert current instance into xml string
-  [string] ToXml([MaatDirectory]$dir) {
+  [string] ToXml() {
     $memberDesc = $this.memberDescription ? ($this.memberDescription).Replace("&", "&amp;") : ""
-    $groupsByPerm = $this.GetDirAccessGroupsByPerm($dir)
-    $permissions = $this.GetDirPermissions($groupsByPerm)
-    $dirAccessGroupsSimpleXml = $this.GetDirAccessGroupNames($dir) | foreach-object {
+    $dirAccessGroupsSimpleXml = $this.GetGroupNames() | foreach-object {
       @"
             <g_name>$_</g_name>
 "@
@@ -1105,7 +1159,6 @@ class MaatAccessGroupMember {
           <m_name>$($this.memberName)</m_name>
           <m_domain>$($this.memberDomain)</m_domain>
           <m_status>$($this.memberStatus ? "Enabled" : "Disabled")</m_status>
-          <m_permissions>$permissions</m_permissions>
           <m_access_group>$($dirAccessGroupsSimpleXml)</m_access_group>
           <m_description>$memberDesc</m_description>
         </member>
