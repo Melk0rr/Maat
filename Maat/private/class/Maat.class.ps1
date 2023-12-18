@@ -710,7 +710,7 @@ class MaatDirectory {
     # Feedback on users
     $accessUsers = $this.GetAccessUsers()
     $enabledUsers = $accessUsers.Where({ $_.GetStatus() })
-    Write-Host -f DarkRed "`nAccess users: $($accessUsers.count) ($($accessUsers.count - $enabledUsers.count) disabled)"
+    Write-Host -f DarkRed "`nAccess users: $($accessUsers.count) ($($enabledUsers.count) enabled / $($accessUsers.count - $enabledUsers.count) disabled)"
 
     $accessUserOrdered = $this.GetAccessUsersByPerms()
     foreach ($p in $accessUserOrdered.keys) {
