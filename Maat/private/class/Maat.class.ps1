@@ -116,6 +116,7 @@ class MaatResult {
       $uniqueAccessGroup = [MaatAccessGroup]::new($groupName, $access)
       $this.uniqueAccessGroups += $uniqueAccessGroup
     }
+
     else {
       $searchUniqueAccessGroup[0].AddAccess($access, $true)
       $uniqueAccessGroup = $searchUniqueAccessGroup[0]
@@ -133,6 +134,7 @@ class MaatResult {
       $uniqueMember = [MaatAccessGroupMember]::new($memberObject)
       $this.uniqueAccessUsers += $uniqueMember
     }
+
     else {
       $uniqueMember = $searchUniqueMember[0]
     }
@@ -351,8 +353,8 @@ class MaatADConnector {
             if ($subForeignADGroup) {
               $this.maat.HandleLogs("Found foreign group in $d : $($subForeignADGroup.name)", "Green")
               $this.ResolveADGroupTree($subForeignADGroup, $access, $maatAccessGroup)
-
             }
+
             else {
               $this.maat.HandleLogs("Could not find $($gr.Name) in $d", "Red")
             }
@@ -575,10 +577,13 @@ class MaatDirectory {
     $this.dirPath = $dirXmlContent.dir_path
     $this.resultRef = $result
 
+    $accessToCurrentDir = [MaatAccess]::new($this, $accessGroupXml.g_permissions, "ACL")
     $this.aclConnector = [MaatACLConnector]::new($this)
+    $directAccessGroup = [MaatAccessGroup]:new("[DIRECT]", $accessToCurrentDir)
+    $this.dirAccessGroups += $directAccessGroup
 
     foreach ($accessGroupXml in $dirXmlContent.SelectNodes("*/group")) {
-      [MaatAccess]$accessToCurrentDir = [MaatAccess]::new($this, $accessGroupXml.g_permissions, "config")
+      $accessToCurrentDir.SetType("config")
       [MaatAccessGroup]$uniqueRelatedAccessGroup = $this.resultRef.GetUniqueAccessGroup($accessGroupXml.g_name, $accessToCurrentDir)
 
       if ($accessGroupXml.SelectNodes("*/member").count -gt 0) {
